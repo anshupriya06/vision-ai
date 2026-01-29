@@ -1,0 +1,12 @@
+# AI/ML heavy stuff
+*.pt
+*.pth
+*.pkl
+*.h5
+*.onnx
+*.mp4
+*.avi
+dataset/
+input/
+models/
+output/
