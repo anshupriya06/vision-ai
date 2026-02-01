@@ -12,6 +12,7 @@ import History from './pages/History';
 import Profile from './pages/Profile';
 import EditProfile from './pages/EditProfile';
 import StaticPage from './pages/StaticPage';
+import FeatureDetails from './pages/FeatureDetails';
 import { useAuth } from './hooks/useAuth';
 
 function AppContent() {
@@ -45,6 +46,7 @@ function AppContent() {
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
+          <Route path="/feature-details" element={<FeatureDetails />} />
           <Route path="/features" element={<StaticPage page="features" />} />
           <Route path="/pricing" element={<StaticPage page="pricing" />} />
           <Route path="/api" element={<StaticPage page="api" />} />

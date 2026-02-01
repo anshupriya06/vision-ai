@@ -1,7 +1,57 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import axios from 'axios';
 
 const Footer = () => {
+  const [email, setEmail] = useState('');
+  const [subscribeStatus, setSubscribeStatus] = useState('idle'); // idle, loading, success, error
+  const [message, setMessage] = useState('');
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSubscribe = async (e) => {
+    e.preventDefault();
+    
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      setSubscribeStatus('error');
+      setMessage('Please enter a valid email address');
+      setTimeout(() => {
+        setSubscribeStatus('idle');
+        setMessage('');
+      }, 3000);
+      return;
+    }
+
+    setSubscribeStatus('loading');
+    
+    try {
+      // Call actual backend endpoint
+      const response = await axios.post('http://localhost:8000/newsletter/subscribe', null, {
+        params: { email }
+      });
+      
+      setSubscribeStatus('success');
+      setMessage(response.data.message || 'Successfully subscribed! Check your inbox.');
+      setEmail('');
+      
+      setTimeout(() => {
+        setSubscribeStatus('idle');
+        setMessage('');
+      }, 5000);
+    } catch (error) {
+      setSubscribeStatus('error');
+      setMessage(error.response?.data?.detail || 'Failed to subscribe. Please try again.');
+      setTimeout(() => {
+        setSubscribeStatus('idle');
+        setMessage('');
+      }, 3000);
+    }
+  };
+
   const footerLinks = {
     Product: [
       { label: 'Features', path: '/features' },
@@ -77,6 +127,7 @@ const Footer = () => {
                   <li key={link.label}>
                     <Link
                       to={link.path}
+                      onClick={scrollToTop}
                       className="text-gray-400 hover:text-accent transition-colors text-sm"
                     >
                       {link.label}
@@ -90,22 +141,46 @@ const Footer = () => {
 
         {/* Newsletter Section */}
         <div className="glassmorphism p-6 rounded-xl mb-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <form onSubmit={handleSubscribe} className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div>
               <h3 className="text-white font-semibold mb-1">Stay Updated</h3>
               <p className="text-gray-400 text-sm">Get the latest news and updates from VisionSafe</p>
             </div>
-            <div className="flex gap-2 w-full md:w-auto">
-              <input
-                type="email"
-                placeholder="Enter your email"
-                className="px-4 py-2 bg-slate-800 border border-accent/30 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-accent transition-colors flex-1 md:w-64"
-              />
-              <button className="px-6 py-2 bg-accent text-white font-semibold rounded-lg hover:bg-accent/80 transition-colors whitespace-nowrap">
-                Subscribe
-              </button>
+            <div className="flex flex-col gap-2 w-full md:w-auto">
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  disabled={subscribeStatus === 'loading'}
+                  className="px-4 py-2 bg-slate-800 border border-accent/30 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-accent transition-colors flex-1 md:w-64 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button 
+                  type="submit"
+                  disabled={subscribeStatus === 'loading'}
+                  className="px-6 py-2 bg-accent text-white font-semibold rounded-lg hover:bg-accent/80 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {subscribeStatus === 'loading' ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Subscribing...
+                    </>
+                  ) : (
+                    'Subscribe'
+                  )}
+                </button>
+              </div>
+              {message && (
+                <p className={`text-sm ${subscribeStatus === 'success' ? 'text-emerald-400' : 'text-red-400'} animate-fade-in`}>
+                  {message}
+                </p>
+              )}
             </div>
-          </div>
+          </form>
         </div>
 
         {/* Bottom Bar */}
@@ -115,9 +190,9 @@ const Footer = () => {
               © {new Date().getFullYear()} VisionSafe. All rights reserved.
             </p>
             <div className="flex items-center space-x-6 text-sm text-gray-400">
-              <Link to="/privacy" className="hover:text-accent transition-colors">Privacy Policy</Link>
-              <Link to="/terms" className="hover:text-accent transition-colors">Terms of Service</Link>
-              <Link to="/cookies" className="hover:text-accent transition-colors">Cookie Policy</Link>
+              <Link to="/privacy" onClick={scrollToTop} className="hover:text-accent transition-colors">Privacy Policy</Link>
+              <Link to="/terms" onClick={scrollToTop} className="hover:text-accent transition-colors">Terms of Service</Link>
+              <Link to="/cookies" onClick={scrollToTop} className="hover:text-accent transition-colors">Cookie Policy</Link>
             </div>
           </div>
         </div>

@@ -106,6 +106,22 @@ class UserProfile(Base):
         return f"<UserProfile(email={self.email})>"
 
 
+class NewsletterSubscriber(Base):
+    """
+    Newsletter subscriber model
+    """
+    __tablename__ = "newsletter_subscribers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String, nullable=False, unique=True, index=True)
+    subscribed_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    is_active = Column(String, default='true')  # 'true' or 'false' for unsubscribe
+    unsubscribe_token = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True)
+
+    def __repr__(self):
+        return f"<NewsletterSubscriber(email={self.email}, active={self.is_active})>"
+
+
 # ========================================
 # DATABASE HELPER FUNCTIONS
 # ========================================
@@ -276,6 +292,55 @@ class UserProfileCRUD:
         db.commit()
         db.refresh(profile)
         return profile
+
+
+class NewsletterCRUD:
+    """CRUD operations for Newsletter Subscriber model"""
+    
+    @staticmethod
+    def subscribe(db, email: str):
+        """Subscribe an email to newsletter"""
+        # Check if already subscribed
+        existing = db.query(NewsletterSubscriber).filter(
+            NewsletterSubscriber.email == email
+        ).first()
+        
+        if existing:
+            if existing.is_active == 'false':
+                # Reactivate subscription
+                existing.is_active = 'true'
+                existing.subscribed_at = datetime.utcnow()
+                db.commit()
+                db.refresh(existing)
+                return existing, False  # False = not new subscriber
+            return existing, False
+        
+        # Create new subscriber
+        subscriber = NewsletterSubscriber(email=email)
+        db.add(subscriber)
+        db.commit()
+        db.refresh(subscriber)
+        return subscriber, True  # True = new subscriber
+    
+    @staticmethod
+    def unsubscribe(db, token: str):
+        """Unsubscribe using token"""
+        subscriber = db.query(NewsletterSubscriber).filter(
+            NewsletterSubscriber.unsubscribe_token == token
+        ).first()
+        
+        if subscriber:
+            subscriber.is_active = 'false'
+            db.commit()
+            return True
+        return False
+    
+    @staticmethod
+    def get_all_active(db):
+        """Get all active subscribers"""
+        return db.query(NewsletterSubscriber).filter(
+            NewsletterSubscriber.is_active == 'true'
+        ).all()
 
 
 # ========================================

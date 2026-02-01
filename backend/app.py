@@ -11,11 +11,12 @@ import json
 from typing import List
 from datetime import datetime
 from ai_engine import process_video
-from database import get_db, init_db, VideoCRUD, DetectionCRUD, UserProfileCRUD
+from database import get_db, init_db, VideoCRUD, DetectionCRUD, UserProfileCRUD, NewsletterCRUD
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import auth as firebase_auth, credentials
+from email_service import send_welcome_email
 
 # Setup logging
 logging.basicConfig(
@@ -476,6 +477,74 @@ async def get_user_stats(user_email: str, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error fetching user stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/newsletter/subscribe")
+async def subscribe_newsletter(email: str, db: Session = Depends(get_db)):
+    """Subscribe email to newsletter with welcome email"""
+    try:
+        # Validate email format
+        import re
+        email_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+        if not re.match(email_regex, email):
+            raise HTTPException(status_code=400, detail="Invalid email format")
+        
+        # Subscribe to database first (this must succeed)
+        try:
+            subscriber, is_new = NewsletterCRUD.subscribe(db, email)
+            logger.info(f"✅ Database subscription successful for {email}")
+        except Exception as db_error:
+            logger.error(f"❌ Database error: {db_error}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+        
+        # Try to send welcome email (don't fail if this doesn't work)
+        if is_new:
+            logger.info(f"New subscriber: {email}. Attempting to send welcome email...")
+            try:
+                email_sent = send_welcome_email(email, str(subscriber.unsubscribe_token))
+                
+                if email_sent:
+                    logger.info(f"✅ Welcome email sent to {email}")
+                    message = "Successfully subscribed! Check your email for a warm welcome from VisionSafe."
+                else:
+                    logger.warning(f"⚠️ Email not sent to {email}")
+                    message = "Successfully subscribed! Welcome to VisionSafe."
+            except Exception as email_error:
+                logger.error(f"⚠️ Email sending failed for {email}: {email_error}")
+                message = "Successfully subscribed! Welcome to VisionSafe."
+        else:
+            logger.info(f"Existing subscriber: {email}")
+            message = "You're already subscribed! Thank you for your continued interest."
+        
+        return {
+            "status": "success",
+            "message": message,
+            "email": email,
+            "is_new": is_new
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Newsletter subscription error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Subscription error: {str(e)}")
+
+@app.get("/newsletter/unsubscribe")
+async def unsubscribe_newsletter(token: str, db: Session = Depends(get_db)):
+    """Unsubscribe from newsletter using token"""
+    try:
+        success = NewsletterCRUD.unsubscribe(db, token)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": "Successfully unsubscribed from newsletter"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Invalid unsubscribe token")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unsubscribe error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to unsubscribe")
 
 
 @app.get("/user/profile")

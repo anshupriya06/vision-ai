@@ -1,6 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const Features = () => {
+  const navigate = useNavigate();
+
   const features = [
     {
       icon: (
@@ -9,8 +12,9 @@ const Features = () => {
         </svg>
       ),
       title: 'Real-time Activity Detection',
-      description: 'Advanced AI algorithms detect and classify human activities in real-time, identifying potential threats instantly.',
+      description: 'YOLOv8 and MediaPipe powered AI classifies park activities in real-time, distinguishing between safe activities (walking, sitting, yoga) and potential threats instantly.',
       gradient: 'from-accent to-blue-600',
+      link: '/feature-details#activity-detection'
     },
     {
       icon: (
@@ -19,8 +23,9 @@ const Features = () => {
         </svg>
       ),
       title: 'Safe/Unsafe Alerts',
-      description: 'Instant notifications for unsafe activities like fighting, fire, smoking, and unauthorized vehicle access.',
+      description: 'Automated alerts when unsafe behaviors are detected in parks - fighting, fire hazards, smoking violations, and unauthorized vehicle entry to protect public spaces.',
       gradient: 'from-safe to-emerald-600',
+      link: '/feature-details#alerts'
     },
     {
       icon: (
@@ -29,8 +34,9 @@ const Features = () => {
         </svg>
       ),
       title: 'Video Analytics',
-      description: 'Comprehensive video analysis with pose estimation, object tracking, and behavioral pattern recognition.',
+      description: 'Advanced pose estimation and behavioral pattern analysis to understand park visitor activities, generating detailed safety reports and activity statistics.',
       gradient: 'from-purple-500 to-pink-600',
+      link: '/feature-details#analytics'
     },
   ];
 
@@ -52,11 +58,11 @@ const Features = () => {
           {features.map((feature, index) => (
             <div
               key={index}
+              onClick={() => navigate(feature.link)}
               className="group glassmorphism p-8 rounded-xl hover:scale-105 transition-all duration-300 hover:shadow-2xl hover:shadow-accent/20 cursor-pointer"
             >
               {/* Icon */}
               <div className="relative mb-6">
-                <div className={`absolute inset-0 bg-gradient-to-r ${feature.gradient} rounded-xl blur opacity-50 group-hover:opacity-100 transition-opacity`}></div>
                 <div className={`relative bg-gradient-to-r ${feature.gradient} p-4 rounded-xl text-white w-fit`}>
                   {feature.icon}
                 </div>

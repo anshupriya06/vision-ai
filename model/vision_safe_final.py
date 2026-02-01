@@ -124,7 +124,7 @@ while True:
             else:
                 pred = "Unknown"
 
-            # 🔥 SAFETY DECISION
+            # SAFETY DECISION
             if pred in SAFE_ACTIVITIES:
                 status = "SAFE"
                 color = (0, 255, 0)
