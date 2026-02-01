@@ -1,9 +1,5 @@
 import React from 'react';
 
-/**
- * LoadingSpinner Component
- * Displays a spinning loader during async operations
- */
 const LoadingSpinner = ({ size = 'md', color = 'accent' }) => {
   const sizeClasses = {
     sm: 'w-4 h-4',

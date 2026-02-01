@@ -82,7 +82,7 @@ def extract_angles_from_person(person_img):
 # -------------------- VIDEO SETUP --------------------
 cap = cv2.VideoCapture(INPUT_VIDEO)
 if not cap.isOpened():
-    print("❌ Cannot open video")
+    print("Cannot open video")
     exit()
 
 fps = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -153,4 +153,4 @@ while True:
 cap.release()
 out.release()
 
-print("✅ Done! Output saved as:", OUTPUT_VIDEO)
+print("Done! Output saved as:", OUTPUT_VIDEO)

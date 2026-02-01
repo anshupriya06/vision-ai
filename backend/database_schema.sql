@@ -59,9 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_detections_timestamp ON detections(timestamp_seco
 CREATE INDEX IF NOT EXISTS idx_detections_video_frame ON detections(video_id, frame_number);
 CREATE INDEX IF NOT EXISTS idx_videos_user_status ON videos(user_email, overall_status);
 
--- ========================================
 -- FUNCTION: Update timestamp on record update
--- ========================================
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -106,9 +104,7 @@ FROM videos v
 LEFT JOIN detections d ON v.id = d.video_id
 GROUP BY v.id, v.filename, v.upload_time, v.overall_status, v.user_email;
 
--- ========================================
 -- COMMENTS for Documentation
--- ========================================
 
 COMMENT ON TABLE videos IS 'Stores metadata for all processed surveillance videos';
 COMMENT ON TABLE detections IS 'Stores frame-level activity detections and safety classifications';

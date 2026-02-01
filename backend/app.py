@@ -34,9 +34,9 @@ if not firebase_admin._apps:
             firebase_admin.initialize_app(credentials.Certificate(creds_path))
         else:
             firebase_admin.initialize_app()
-        logger.info("✅ Firebase Admin initialized")
+        logger.info("Firebase Admin initialized")
     except Exception as e:
-        logger.warning(f"⚠️ Firebase Admin initialization failed: {e}")
+        logger.warning(f"WARNING: Firebase Admin initialization failed: {e}")
 
 
 def get_email_from_token(authorization: str | None) -> str:
@@ -65,9 +65,9 @@ async def startup_event():
     logger.info("Initializing database...")
     try:
         init_db()
-        logger.info("✅ Database initialized successfully")
+        logger.info("Database initialized successfully")
     except Exception as e:
-        logger.warning(f"⚠️ Database initialization: {e}")
+        logger.warning(f"WARNING: Database initialization: {e}")
 
 # CORS middleware
 app.add_middleware(
@@ -259,7 +259,7 @@ async def upload_video(
                 }
                 
                 video = video_crud.create_video(**video_data)
-                logger.info(f"✅ Video record created: {video.id}")
+                logger.info(f"Video record created: {video.id}")
                 
                 # Save detections if available
                 if "detections" in result and result["detections"]:
@@ -267,7 +267,7 @@ async def upload_video(
                     for detection_data in result["detections"]:
                         detection_data["video_id"] = video.id
                         detection_crud.create_detection(**detection_data)
-                    logger.info(f"✅ Created {len(result['detections'])} detection records")
+                    logger.info(f"Created {len(result['detections'])} detection records")
             
             except Exception as db_error:
                 logger.error(f"Database error: {db_error}")
@@ -276,7 +276,7 @@ async def upload_video(
             # Send alert based on detection result
             if result["status"] == "UNSAFE":
                 await send_alert(
-                    message=f"⚠️ UNSAFE activity detected in {file.filename}!",
+                    message=f"WARNING: UNSAFE activity detected in {file.filename}!",
                     alert_type="danger",
                     data={
                         "filename": file.filename,
@@ -287,7 +287,7 @@ async def upload_video(
                 )
             else:
                 await send_alert(
-                    message=f"✓ Video {file.filename} processed successfully - All Safe",
+                    message=f"Video {file.filename} processed successfully - All Safe",
                     alert_type="success",
                     data={
                         "filename": file.filename,

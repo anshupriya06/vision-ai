@@ -37,7 +37,7 @@ def parse_database_url(url):
             "port": port
         }
     except Exception as e:
-        print(f"❌ Error parsing DATABASE_URL: {e}")
+        print(f"Error parsing DATABASE_URL: {e}")
         raise
 
 def run_migration():
@@ -45,19 +45,19 @@ def run_migration():
     try:
         # Parse database URL
         db_config = parse_database_url(DATABASE_URL)
-        print(f"📌 Connecting to database: {db_config['database']} on {db_config['host']}:{db_config['port']}")
+        print(f"Connecting to database: {db_config['database']} on {db_config['host']}:{db_config['port']}")
         
         # Read migration SQL file
         schema_file = Path(__file__).parent / "database_schema.sql"
         
         if not schema_file.exists():
-            print(f"❌ Error: {schema_file} not found")
+            print(f"Error: {schema_file} not found")
             return False
         
         with open(schema_file, 'r') as f:
             migration_sql = f.read()
         
-        print(f"📋 Read migration script from {schema_file}")
+        print(f"Read migration script from {schema_file}")
         
         # Connect to database
         conn = psycopg2.connect(
@@ -70,13 +70,13 @@ def run_migration():
         conn.autocommit = False
         cursor = conn.cursor()
         
-        print("✅ Connected to database")
+        print("Connected to database")
         
         try:
             # Execute migration SQL
             cursor.execute(migration_sql)
             conn.commit()
-            print("✅ Migration completed successfully!")
+            print("Migration completed successfully!")
             
             # Verify users table exists
             cursor.execute("""
@@ -88,7 +88,7 @@ def run_migration():
             users_table_exists = cursor.fetchone()[0]
             
             if users_table_exists:
-                print("✅ 'users' table verified")
+                print("'users' table verified")
                 
                 # Check table structure
                 cursor.execute("""
@@ -98,12 +98,12 @@ def run_migration():
                     ORDER BY ordinal_position
                 """)
                 columns = cursor.fetchall()
-                print("\n📊 'users' table structure:")
+                print("\n'users' table structure:")
                 for col_name, col_type, nullable in columns:
                     nullable_str = "NULL" if nullable == "YES" else "NOT NULL"
                     print(f"  - {col_name}: {col_type} ({nullable_str})")
             else:
-                print("⚠️  'users' table not found after migration")
+                print("WARNING: 'users' table not found after migration")
                 return False
             
             # Verify other critical tables
@@ -115,17 +115,17 @@ def run_migration():
                     )
                 """)
                 if cursor.fetchone()[0]:
-                    print(f"✅ '{table}' table verified")
+                    print(f"'{table}' table verified")
                 else:
-                    print(f"⚠️  '{table}' table not found")
+                    print(f"WARNING: '{table}' table not found")
             
-            print("\n✅ Migration completed successfully!")
-            print("📍 All tables and indexes have been created/updated")
+            print("\nMigration completed successfully!")
+            print("All tables and indexes have been created/updated")
             return True
             
         except Exception as e:
             conn.rollback()
-            print(f"❌ Migration failed: {e}")
+            print(f"Migration failed: {e}")
             return False
         
         finally:
@@ -133,11 +133,11 @@ def run_migration():
             conn.close()
     
     except Exception as e:
-        print(f"❌ Connection error: {e}")
+        print(f"Connection error: {e}")
         return False
 
 if __name__ == "__main__":
-    print("🚀 Starting VisionSafe Database Migration\n")
+    print("Starting VisionSafe Database Migration\n")
     success = run_migration()
     print()
     exit(0 if success else 1)
