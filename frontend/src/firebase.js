@@ -1,16 +1,14 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
-// Your Firebase configuration
-// Replace with your actual Firebase config from Firebase Console
 const firebaseConfig = {
-  apiKey: "AIzaSyBeJkZ16HlG3wI1vMlnKQyjs6SJbLMgt2U",
-    authDomain: "visionsafe-50ed5.firebaseapp.com",
-    projectId: "visionsafe-50ed5",
-    storageBucket: "visionsafe-50ed5.firebasestorage.app",
-    messagingSenderId: "677721339926",
-    appId: "1:677721339926:web:f6846a3d7d45739b8ddd37",
-    measurementId: "G-KV7LE18VZK"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);

@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 # Email Configuration (use environment variables in production)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "anshupriyadnr06@gmail.com") 
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "mbne rftt hzxh pwlo")  
-FROM_EMAIL = os.getenv("FROM_EMAIL", "anshupriyadnr06@gmail.com")  
-FROM_NAME = "VisionSafe Team"
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+FROM_EMAIL = os.getenv("FROM_EMAIL", "")
+FROM_NAME = os.getenv("FROM_NAME", "VisionSafe Team")
 
 
 def get_welcome_email_html(subscriber_email: str, unsubscribe_token: str) -> str:
@@ -264,6 +264,10 @@ def send_welcome_email(recipient_email: str, unsubscribe_token: str) -> bool:
         bool: True if email sent successfully, False otherwise
     """
     try:
+        if not SMTP_USER or not SMTP_PASSWORD or not FROM_EMAIL:
+            logger.error("SMTP credentials are not configured. Set SMTP_USER, SMTP_PASSWORD, and FROM_EMAIL in environment variables.")
+            return False
+
         # Create message
         msg = MIMEMultipart('alternative')
         msg['Subject'] = '🎉 Welcome to VisionSafe - Your Journey to Smarter Security Begins!'
