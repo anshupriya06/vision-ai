@@ -4,6 +4,7 @@ import { updateProfile } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { useAuth } from '../hooks/useAuth';
+import API_BASE from '../config/api';
 
 const EditProfile = () => {
   const { currentUser } = useAuth();
@@ -30,9 +31,10 @@ const EditProfile = () => {
           return;
         }
         const token = await currentUser.getIdToken();
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch(`${API_BASE}/user/profile`, {
           headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            'X-User-Email': currentUser.email
           }
         });
         if (response.ok) {
@@ -133,14 +135,15 @@ const EditProfile = () => {
       if (currentUser?.email) {
         const token = await currentUser.getIdToken();
         await axios.post(
-          'http://localhost:8000/user/update-profile',
+          `${API_BASE}/user/update-profile`,
           {
             mobile_number: formValues.mobileNumber,
             bio: formValues.bio
           },
           {
             headers: {
-              Authorization: `Bearer ${token}`
+              Authorization: `Bearer ${token}`,
+              'X-User-Email': currentUser.email
             }
           }
         );

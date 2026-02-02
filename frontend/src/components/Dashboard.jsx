@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import axios from 'axios';
+import API_BASE from '../config/api';
 import VideoHistory from './VideoHistory';
 import DashboardStats from './DashboardStats';
 
@@ -10,10 +11,50 @@ const Dashboard = ({ setCurrentPage }) => {
   const [uploadStatus, setUploadStatus] = useState('idle'); // idle, uploading, processing, completed, error
   const [processedVideo, setProcessedVideo] = useState(null);
   const [safetyStatus, setSafetyStatus] = useState(null);
+  const [unsafePercentage, setUnsafePercentage] = useState(null);
+  const [safePercentage, setSafePercentage] = useState(null);
+  const [modelConfidence, setModelConfidence] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState('upload'); // upload, history, stats
+  const [quickStats, setQuickStats] = useState(null);
   const fileInputRef = useRef(null);
+  const videoRef = useRef(null);
+
+  // Fetch quick stats
+  useEffect(() => {
+    if (currentUser?.email) {
+      fetchQuickStats();
+    }
+  }, [currentUser]);
+
+  // Reload video when processedVideo changes
+  useEffect(() => {
+    if (processedVideo && videoRef.current) {
+      console.log('🎥 Loading video:', `${API_BASE}${processedVideo}`);
+      videoRef.current.load();
+      videoRef.current.play().catch(err => {
+        console.log('Autoplay prevented:', err);
+      });
+    }
+  }, [processedVideo]);
+
+  const fetchQuickStats = async () => {
+    try {
+      console.log('📊 Fetching stats for:', currentUser?.email);
+      const response = await axios.get(`${API_BASE}/videos/stats/${currentUser?.email}`);
+      console.log('📊 Stats response:', response.data);
+      setQuickStats(response.data);
+    } catch (error) {
+      console.error('❌ Error fetching quick stats:', error);
+      console.error('Error response:', error.response?.data);
+      setQuickStats({
+        total_videos: 0,
+        safe_videos: 0,
+        average_confidence: 0
+      });
+    }
+  };
 
   // Handle file selection
   const handleFileSelect = (file) => {
@@ -86,9 +127,10 @@ const Dashboard = ({ setCurrentPage }) => {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      // Upload video
-      const response = await axios.post('http://localhost:8000/upload-video', formData, {
+      // Upload video (with extended timeout for video processing)
+      const response = await axios.post(`${API_BASE}/upload-video`, formData, {
         headers,
+        timeout: 600000, // 10 minutes timeout for processing
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           console.log('Upload progress:', percentCompleted + '%');
@@ -101,9 +143,24 @@ const Dashboard = ({ setCurrentPage }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Set results
+      console.log('✅ Video processed successfully!');
+      console.log('Response data:', response.data);
+      console.log('Video URL:', response.data.video_url);
+      console.log('Full URL will be:', `${API_BASE}${response.data.video_url}`);
+      
       setProcessedVideo(response.data.video_url);
       setSafetyStatus(response.data.status);
+      setModelConfidence(response.data.confidence ?? null);
+      const unsafePct = response.data.unsafe_percentage ?? (response.data.confidence != null ? (1 - response.data.confidence) * 100 : null);
+      const safePct = response.data.safe_percentage ?? (response.data.confidence != null ? response.data.confidence * 100 : null);
+      setUnsafePercentage(unsafePct != null ? Number(unsafePct) : null);
+      setSafePercentage(safePct != null ? Number(safePct) : null);
       setUploadStatus('completed');
+
+      if (currentUser?.email) {
+        console.log('Refreshing stats for user:', currentUser.email);
+        fetchQuickStats();
+      }
       
     } catch (error) {
       console.error('Upload error:', error);
@@ -119,7 +176,7 @@ const Dashboard = ({ setCurrentPage }) => {
       } else if (error.response?.status === 500) {
         setErrorMessage(error.response?.data?.detail || 'Server error: Video processing failed. Please try again.');
       } else if (error.code === 'ERR_NETWORK') {
-        setErrorMessage('Network error: Cannot reach the backend server. Make sure it is running on http://localhost:8000');
+        setErrorMessage(`Network error: Cannot reach the backend server. Make sure it is running on ${API_BASE}`);
       } else {
         setErrorMessage(
           error.response?.data?.detail || 
@@ -137,6 +194,9 @@ const Dashboard = ({ setCurrentPage }) => {
     setUploadStatus('idle');
     setProcessedVideo(null);
     setSafetyStatus(null);
+    setUnsafePercentage(null);
+    setSafePercentage(null);
+    setModelConfidence(null);
     setErrorMessage('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -217,14 +277,32 @@ const Dashboard = ({ setCurrentPage }) => {
             <div className="mb-6 glassmorphism p-4 rounded-lg border border-accent/30">
               <div className="flex items-center space-x-3">
                 <div className="relative">
-                  <svg className="animate-spin h-6 w-6 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <svg
+                    className={`${uploadStatus === 'processing' || uploadStatus === 'uploading' ? 'animate-spin' : ''} h-6 w-6 text-accent`}
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                 </div>
                 <div>
                   <p className="text-white font-semibold">{getStatusText()}</p>
-                  <p className="text-sm text-gray-400">Please wait while we analyze your video</p>
+                  <p className="text-sm text-gray-400">
+                    {uploadStatus === 'uploading'
+                      ? 'Uploading video to server...'
+                      : uploadStatus === 'processing'
+                        ? 'AI analysis in progress (typically 1-5 minutes depending on video length)'
+                        : 'Analysis complete. Results are ready below.'}
+                  </p>
+                  {uploadStatus === 'processing' && (
+                    <div className="mt-2 text-xs text-gray-500 space-y-1">
+                      <p>→ Analyzing frames with YOLOv8</p>
+                      <p>→ Detecting poses with MediaPipe</p>
+                      <p>→ Classifying activities</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -325,9 +403,9 @@ const Dashboard = ({ setCurrentPage }) => {
             <>
               {/* Results Section */}
               <div className="space-y-6">
-                {/* Safety Status Badge */}
+                {/* Safety Status with Prediction - Linear Layout */}
                 <div className="flex justify-center">
-                  <div className={`inline-flex items-center space-x-3 px-8 py-4 rounded-xl font-bold text-lg ${
+                  <div className={`inline-flex items-center space-x-6 px-8 py-4 rounded-xl font-bold text-lg ${
                     safetyStatus === 'SAFE' 
                       ? 'bg-safe/20 border-2 border-safe text-safe' 
                       : 'bg-unsafe/20 border-2 border-unsafe text-unsafe'
@@ -347,6 +425,23 @@ const Dashboard = ({ setCurrentPage }) => {
                         <span>UNSAFE - Threat Detected</span>
                       </>
                     )}
+                    
+                    {(unsafePercentage != null || safePercentage != null) && (
+                      <>
+                        <div className="w-px h-10 bg-current opacity-30"></div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-xs opacity-70 font-normal">
+                            {safetyStatus === 'SAFE' ? 'Prediction (Safe)' : 'Prediction (Unsafe)'}
+                          </span>
+                          <span className="text-2xl font-bold">
+                            {safetyStatus === 'SAFE'
+                              ? (safePercentage != null ? `${safePercentage.toFixed(1)}%` : '—')
+                              : (unsafePercentage != null ? `${unsafePercentage.toFixed(1)}%` : '—')
+                            }
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -355,9 +450,19 @@ const Dashboard = ({ setCurrentPage }) => {
                   <h3 className="text-xl font-bold text-white mb-4">Processed Video Results</h3>
                   <div className="relative rounded-lg overflow-hidden bg-slate-950">
                     <video
+                      ref={videoRef}
+                      key={processedVideo}
+                      autoPlay
+                      muted
+                      playsInline
                       controls
                       className="w-full h-auto"
-                      src={`http://localhost:8000${processedVideo}`}
+                      src={`${API_BASE}${processedVideo}`}
+                      onError={(e) => {
+                        console.error('Video load error:', e);
+                        console.error('Video src:', `${API_BASE}${processedVideo}`);
+                      }}
+                      onLoadedData={() => console.log('Video loaded successfully')}
                     >
                       Your browser does not support the video tag.
                     </video>
@@ -365,7 +470,7 @@ const Dashboard = ({ setCurrentPage }) => {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-4 justify-center">
+                <div className="flex flex-wrap gap-4 justify-center">
                   <button
                     onClick={handleReset}
                     className="px-6 py-3 bg-slate-800 border border-accent/30 text-white font-semibold rounded-xl hover:bg-slate-700 hover:border-accent transition-all"
@@ -373,7 +478,7 @@ const Dashboard = ({ setCurrentPage }) => {
                     Analyze Another Video
                   </button>
                   <a
-                    href={`http://localhost:8000${processedVideo}`}
+                    href={`${API_BASE}${processedVideo}`}
                     download
                     className="px-6 py-3 bg-accent text-white font-semibold rounded-xl hover:bg-accent/80 transition-all flex items-center gap-2"
                   >
@@ -382,6 +487,33 @@ const Dashboard = ({ setCurrentPage }) => {
                     </svg>
                     Download Result
                   </a>
+                  <button
+                    onClick={() => {
+                      const shareData = {
+                        status: safetyStatus,
+                        filename: selectedFile?.name,
+                        videoUrl: `${API_BASE}${processedVideo}`,
+                        timestamp: new Date().toISOString()
+                      };
+                      const shareText = `VisionSafe Analysis Result\n\nStatus: ${shareData.status}\nFile: ${shareData.filename}\nAnalyzed: ${new Date(shareData.timestamp).toLocaleString()}\n\nPowered by VisionSafe AI`;
+                      
+                      if (navigator.share) {
+                        navigator.share({
+                          title: 'VisionSafe Analysis Report',
+                          text: shareText,
+                        }).catch(err => console.log('Share cancelled'));
+                      } else {
+                        navigator.clipboard.writeText(shareText);
+                        alert('Report copied to clipboard!');
+                      }
+                    }}
+                    className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all flex items-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                    Share Report
+                  </button>
                 </div>
               </div>
             </>
@@ -394,8 +526,10 @@ const Dashboard = ({ setCurrentPage }) => {
                 <h3 className="text-xl font-bold text-white">Total Analyses</h3>
                 <div className="w-3 h-3 bg-accent rounded-full animate-pulse"></div>
               </div>
-              <p className="text-3xl font-bold text-gradient">0</p>
-              <p className="text-sm text-gray-400 mt-2">Videos processed today</p>
+              <p className="text-3xl font-bold text-gradient">
+                {quickStats ? quickStats.total_videos : 0}
+              </p>
+              <p className="text-sm text-gray-400 mt-2">Videos processed total</p>
             </div>
 
             <div className="glassmorphism p-6 rounded-xl hover:scale-105 transition-all cursor-pointer">
@@ -405,19 +539,23 @@ const Dashboard = ({ setCurrentPage }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <p className="text-3xl font-bold text-safe">0</p>
-              <p className="text-sm text-gray-400 mt-2">No threats detected</p>
+              <p className="text-3xl font-bold text-safe">
+                {quickStats ? quickStats.safe_videos : 0}
+              </p>
+              <p className="text-sm text-gray-400 mt-2">Safe videos detected</p>
             </div>
 
             <div className="glassmorphism p-6 rounded-xl hover:scale-105 transition-all cursor-pointer">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white">Accuracy</h3>
+                <h3 className="text-xl font-bold text-white">Avg Confidence</h3>
                 <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-3xl font-bold text-accent">99.9%</p>
-              <p className="text-sm text-gray-400 mt-2">Detection accuracy</p>
+              <p className="text-3xl font-bold text-accent">
+                {quickStats ? `${(quickStats.average_confidence * 100).toFixed(1)}%` : '0%'}
+              </p>
+              <p className="text-sm text-gray-400 mt-2">Detection confidence</p>
             </div>
           </div>
         </div>

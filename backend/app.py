@@ -1,7 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect, Depends, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect, Depends, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 import os
 import shutil
 from pathlib import Path
@@ -11,12 +12,12 @@ import json
 from typing import List
 from datetime import datetime
 from ai_engine import process_video
-from database import get_db, init_db, VideoCRUD, DetectionCRUD, UserProfileCRUD, NewsletterCRUD
+from database import get_db, init_db, Video, VideoCRUD, DetectionCRUD, UserProfileCRUD, NewsletterCRUD
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import auth as firebase_auth, credentials
-from email_service import send_welcome_email
+from email_service import send_welcome_email, send_contact_email
 
 # Setup logging
 logging.basicConfig(
@@ -26,6 +27,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="VisionSafe Backend API")
+
+# Load environment variables from backend/.env if present
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 # Initialize Firebase Admin (expects GOOGLE_APPLICATION_CREDENTIALS env or default credentials)
 if not firebase_admin._apps:
@@ -177,7 +182,7 @@ async def root():
 @app.post("/upload-video")
 async def upload_video(
     file: UploadFile = File(...), 
-    user_email: str = None,
+    user_email: str = Form(default=None),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db)
 ):
@@ -191,14 +196,21 @@ async def upload_video(
     
     try:
         # Extract email from Bearer token if Authorization header is provided
-        if authorization and not user_email:
+        if authorization and (not user_email or user_email == "anonymous"):
             try:
                 user_email = get_email_from_token(authorization)
                 logger.info(f"Extracted email from token: {user_email}")
             except HTTPException as e:
                 logger.warning(f"Token verification failed: {e.detail}")
-                user_email = "anonymous"
+                # FALLBACK: If token fails but user_email was provided in form, use it
+                if not user_email or user_email == "anonymous":
+                    user_email = "anonymous"
         
+        # Normalize email for consistent stats lookup
+        if user_email and user_email != "anonymous":
+            user_email = user_email.strip().lower()
+            logger.info(f"✅ Using email: {user_email}")
+
         # Use provided email or default to anonymous
         if not user_email:
             user_email = "anonymous"
@@ -230,51 +242,73 @@ async def upload_video(
         
         # Process video with AI engine
         try:
+            import time
+            
             # Send alert: Processing started
+            alert_start = time.time()
             await send_alert(
                 message=f"Processing video: {file.filename}",
                 alert_type="info",
                 data={"filename": file.filename, "status": "processing"}
             )
+            logger.info(f"⏱  Alert sent: {time.time() - alert_start:.2f}s")
             
+            process_start = time.time()
             result = process_video(
                 input_path=str(upload_path),
                 output_path=str(output_path)
             )
+            process_time = time.time() - process_start
             
             logger.info(f"AI processing complete. Status: {result['status']}")
+            logger.info(f"⏱️  Video processing time: {process_time:.2f}s")
             
             # Save to database
             try:
-                video_crud = VideoCRUD(db)
-                video_data = {
-                    "filename": file.filename,
-                    "upload_time": datetime.utcnow(),
-                    "processed_video_path": str(output_path),
-                    "overall_status": result.get("status", "SAFE").lower(),
-                    "user_email": user_email or "anonymous",
-                    "confidence": float(result.get("confidence", 0.0)),
-                    "duration_seconds": float(result.get("duration", 0.0)),
-                    "total_frames": int(result.get("total_frames", 0)),
-                    "file_size_bytes": int(file_size)
-                }
+                db_start = time.time()
+                # Fix: VideoCRUD uses static methods, no need to instantiate
+                video = VideoCRUD.create_video(
+                    db=db,
+                    filename=file.filename,
+                    user_email=user_email or "anonymous",
+                    overall_status=result.get("status", "SAFE").upper(),  # Must be uppercase: SAFE or UNSAFE
+                    upload_time=datetime.utcnow(),
+                    processed_video_path=str(output_path),
+                    confidence=float(result.get("confidence", 0.0)),
+                    duration_seconds=float(result.get("duration", 0.0)),
+                    total_frames=int(result.get("total_frames", 0)),
+                    file_size_bytes=int(file_size)
+                )
                 
-                video = video_crud.create_video(**video_data)
                 logger.info(f"Video record created: {video.id}")
+                logger.info(f"⏱️  Database video save: {time.time() - db_start:.2f}s")
                 
-                # Save detections if available
+                # Save detections if available - Use BULK INSERT for speed
                 if "detections" in result and result["detections"]:
-                    detection_crud = DetectionCRUD(db)
-                    for detection_data in result["detections"]:
-                        detection_data["video_id"] = video.id
-                        detection_crud.create_detection(**detection_data)
-                    logger.info(f"Created {len(result['detections'])} detection records")
+                    det_start = time.time()
+                    
+                    # OPTIMIZATION: Limit detections to save (first 100) and use bulk insert
+                    detections_to_save = result["detections"][:100]
+                    
+                    # Add video_id to each detection
+                    for detection in detections_to_save:
+                        detection["video_id"] = video.id
+                    
+                    # Bulk insert all detections at once (MUCH FASTER!)
+                    DetectionCRUD.bulk_create_detections(db, detections_to_save)
+                    
+                    logger.info(f"Created {len(detections_to_save)} detection records (bulk insert)")
+                    logger.info(f"⏱️  Database detections save: {time.time() - det_start:.2f}s")
             
             except Exception as db_error:
-                logger.error(f"Database error: {db_error}")
+                logger.error(f"❌ DATABASE ERROR: {db_error}")
+                logger.error(f"Error type: {type(db_error).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 # Continue anyway - video is processed even if DB save fails
             
             # Send alert based on detection result
+            alert2_start = time.time()
             if result["status"] == "UNSAFE":
                 await send_alert(
                     message=f"WARNING: UNSAFE activity detected in {file.filename}!",
@@ -283,7 +317,7 @@ async def upload_video(
                         "filename": file.filename,
                         "status": result["status"],
                         "confidence": result.get("confidence", 0.0),
-                        "unsafe_events": result.get("unsafe_events", [])
+                        "unsafe_events": result.get("unsafe_events", [])[:20]  # Limit events in alert
                     }
                 )
             else:
@@ -296,18 +330,22 @@ async def upload_video(
                         "detected_activities": result.get("detected_activities", [])
                     }
                 )
+            logger.info(f"⏱️  Final alert sent: {time.time() - alert2_start:.2f}s")
             
             # Build response
+            response_start = time.time()
             response_data = {
                 "video_url": f"/output/{output_filename}",
                 "status": result["status"],
                 "message": "Video processed successfully",
                 "confidence": result.get("confidence", 0.0),
                 "detected_activities": result.get("detected_activities", []),
-                "unsafe_events": result.get("unsafe_events", [])
+                "unsafe_events": result.get("unsafe_events", [])[:50]  # Limit events in response
             }
             
-            logger.info(f"Response: {response_data}")
+            logger.info(f"Response prepared: {response_data.get('status')}")
+            logger.info(f"⏱️  Response build: {time.time() - response_start:.2f}s")
+            logger.info(f"⏱️  TOTAL TIME: {time.time() - process_start:.2f}s")
             return JSONResponse(content=response_data)
             
         except Exception as ai_error:
@@ -331,23 +369,34 @@ async def upload_video(
 async def health_check():
     return {"status": "healthy", "message": "API is running"}
 
-# ========================================
+
 # Database API Endpoints
-# ========================================
 
 class UpdateProfilePayload(BaseModel):
     mobile_number: str | None = None
     bio: str | None = None
 
+
+class ContactPayload(BaseModel):
+    name: str
+    email: str
+    subject: str
+    message: str
+
 @app.get("/videos/history")
-async def get_video_history(user_email: str = None, db: Session = Depends(get_db)):
+async def get_video_history(user_email: str = None, email: str = None, db: Session = Depends(get_db)):
     """Get video processing history for a user"""
     try:
-        video_crud = VideoCRUD(db)
+        if not user_email and email:
+            user_email = email
+
         if user_email:
-            videos = video_crud.get_videos_by_user(user_email)
+            user_email = user_email.strip().lower()
+
+        if user_email:
+            videos = VideoCRUD.get_videos_by_user(db, user_email)
         else:
-            videos = video_crud.get_all_videos()
+            videos = db.query(Video).order_by(Video.upload_time.desc()).limit(100).all()
         
         return {
             "status": "success",
@@ -359,7 +408,10 @@ async def get_video_history(user_email: str = None, db: Session = Depends(get_db
                     "upload_time": v.upload_time.isoformat(),
                     "overall_status": v.overall_status,
                     "confidence": v.confidence,
-                    "duration_seconds": v.duration_seconds
+                    "duration_seconds": v.duration_seconds,
+                    "unsafe_percentage": round((1 - (v.confidence or 0)) * 100, 2) if v.confidence is not None else None,
+                    "safe_percentage": round((v.confidence or 0) * 100, 2) if v.confidence is not None else None,
+                    "video_url": f"/output/{Path(v.processed_video_path).name}" if v.processed_video_path else None
                 }
                 for v in videos
             ]
@@ -372,8 +424,7 @@ async def get_video_history(user_email: str = None, db: Session = Depends(get_db
 async def get_video_details(video_id: str, db: Session = Depends(get_db)):
     """Get details for a specific video"""
     try:
-        video_crud = VideoCRUD(db)
-        video = video_crud.get_video(video_id)
+        video = VideoCRUD.get_video(db, video_id)
         
         if not video:
             raise HTTPException(status_code=404, detail="Video not found")
@@ -402,8 +453,7 @@ async def get_video_details(video_id: str, db: Session = Depends(get_db)):
 async def get_video_detections(video_id: str, db: Session = Depends(get_db)):
     """Get all detections for a specific video"""
     try:
-        detection_crud = DetectionCRUD(db)
-        detections = detection_crud.get_detections_by_video(video_id)
+        detections = DetectionCRUD.get_detections_by_video(db, video_id)
         
         return {
             "status": "success",
@@ -429,8 +479,7 @@ async def get_video_detections(video_id: str, db: Session = Depends(get_db)):
 async def delete_video(video_id: str, db: Session = Depends(get_db)):
     """Delete a video and its detections"""
     try:
-        video_crud = VideoCRUD(db)
-        video = video_crud.get_video(video_id)
+        video = VideoCRUD.get_video(db, video_id)
         
         if not video:
             raise HTTPException(status_code=404, detail="Video not found")
@@ -441,7 +490,7 @@ async def delete_video(video_id: str, db: Session = Depends(get_db)):
             logger.info(f"Deleted file: {video.processed_video_path}")
         
         # Delete from database (cascades to detections)
-        video_crud.delete_video(video_id)
+        VideoCRUD.delete_video(db, video_id)
         
         return {
             "status": "success",
@@ -457,13 +506,16 @@ async def delete_video(video_id: str, db: Session = Depends(get_db)):
 async def get_user_stats(user_email: str, db: Session = Depends(get_db)):
     """Get safety statistics for a user"""
     try:
-        video_crud = VideoCRUD(db)
-        videos = video_crud.get_videos_by_user(user_email)
+        user_email = user_email.strip().lower()
+        videos = VideoCRUD.get_videos_by_user(db, user_email)
         
         total_videos = len(videos)
-        unsafe_count = len([v for v in videos if v.overall_status == "unsafe"])
+        unsafe_count = len([v for v in videos if (v.overall_status or "").upper() == "UNSAFE"])
         safe_count = total_videos - unsafe_count
-        avg_confidence = sum(v.confidence for v in videos) / total_videos if total_videos > 0 else 0
+        avg_confidence = (
+            sum((v.confidence or 0) for v in videos) / total_videos
+            if total_videos > 0 else 0
+        )
         
         return {
             "status": "success",
@@ -548,10 +600,23 @@ async def unsubscribe_newsletter(token: str, db: Session = Depends(get_db)):
 
 
 @app.get("/user/profile")
-async def get_user_profile(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+async def get_user_profile(
+    authorization: str | None = Header(default=None),
+    user_email: str | None = Header(default=None, alias="X-User-Email"),
+    db: Session = Depends(get_db)
+):
     """Get user profile using Firebase token"""
     try:
-        email = get_email_from_token(authorization)
+        email = None
+        if authorization:
+            try:
+                email = get_email_from_token(authorization)
+            except HTTPException:
+                email = None
+        if not email and user_email:
+            email = user_email.strip().lower()
+        if not email:
+            raise HTTPException(status_code=401, detail="Authorization required")
         profile = UserProfileCRUD.ensure_profile(db, email)
 
         return {
@@ -571,10 +636,24 @@ async def get_user_profile(authorization: str | None = Header(default=None), db:
 
 
 @app.post("/user/update-profile")
-async def update_user_profile(payload: UpdateProfilePayload, authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
+async def update_user_profile(
+    payload: UpdateProfilePayload,
+    authorization: str | None = Header(default=None),
+    user_email: str | None = Header(default=None, alias="X-User-Email"),
+    db: Session = Depends(get_db)
+):
     """Update user profile using Firebase token"""
     try:
-        email = get_email_from_token(authorization)
+        email = None
+        if authorization:
+            try:
+                email = get_email_from_token(authorization)
+            except HTTPException:
+                email = None
+        if not email and user_email:
+            email = user_email.strip().lower()
+        if not email:
+            raise HTTPException(status_code=401, detail="Authorization required")
         UserProfileCRUD.ensure_profile(db, email)
         profile = UserProfileCRUD.upsert_profile(
             db,
@@ -597,6 +676,33 @@ async def update_user_profile(payload: UpdateProfilePayload, authorization: str 
     except Exception as e:
         logger.error(f"Error saving user profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/contact")
+async def send_contact(payload: ContactPayload):
+    """Send contact form message to configured receiver"""
+    try:
+        sent = send_contact_email(
+            name=payload.name,
+            sender_email=payload.email,
+            subject=payload.subject,
+            message=payload.message
+        )
+        if not sent:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send message. Configure SMTP_USER, SMTP_PASSWORD, and FROM_EMAIL."
+            )
+
+        return {
+            "status": "success",
+            "message": "Message sent successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Contact form error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
 
 # ========================================

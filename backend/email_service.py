@@ -7,16 +7,23 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 import logging
+from pathlib import Path
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Load environment variables from backend/.env if present
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 # Email Configuration (use environment variables in production)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "")
 FROM_NAME = os.getenv("FROM_NAME", "VisionSafe Team")
+CONTACT_RECEIVER = os.getenv("CONTACT_RECEIVER", "anshupriyadnr06@gmail.com")
 
 
 def get_welcome_email_html(subscriber_email: str, unsubscribe_token: str) -> str:
@@ -320,6 +327,71 @@ Unsubscribe: http://localhost:8000/newsletter/unsubscribe?token={unsubscribe_tok
 
     except Exception as e:
         logger.error(f"❌ Failed to send welcome email to {recipient_email}: {e}")
+        return False
+
+
+def send_contact_email(name: str, sender_email: str, subject: str, message: str) -> bool:
+    """
+    Send contact form message to configured receiver
+
+    Args:
+        name: Sender name
+        sender_email: Sender email
+        subject: Subject line
+        message: Message body
+
+    Returns:
+        bool: True if email sent successfully, False otherwise
+    """
+    try:
+        if not SMTP_USER or not SMTP_PASSWORD or not FROM_EMAIL:
+            logger.error("SMTP credentials are not configured. Set SMTP_USER, SMTP_PASSWORD, and FROM_EMAIL in environment variables.")
+            return False
+
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f"Contact Form: {subject}"
+        msg['From'] = f'{FROM_NAME} <{FROM_EMAIL}>'
+        msg['To'] = CONTACT_RECEIVER
+        msg['Reply-To'] = sender_email
+
+        text_content = f"""
+New contact form submission:
+
+Name: {name}
+Email: {sender_email}
+Subject: {subject}
+
+Message:
+{message}
+        """
+
+        html_content = f"""
+<html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+    <h2>New contact form submission</h2>
+    <p><strong>Name:</strong> {name}</p>
+    <p><strong>Email:</strong> {sender_email}</p>
+    <p><strong>Subject:</strong> {subject}</p>
+    <p><strong>Message:</strong></p>
+    <p>{message.replace('\n', '<br />')}</p>
+  </body>
+</html>
+        """
+
+        msg.attach(MIMEText(text_content, 'plain'))
+        msg.attach(MIMEText(html_content, 'html'))
+
+        logger.info(f"Attempting to send contact email from {sender_email}")
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+
+        logger.info("✅ Contact email sent successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Failed to send contact email: {e}")
         return False
 
 

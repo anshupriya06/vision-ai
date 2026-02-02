@@ -1,27 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import API_BASE from '../config/api';
 import axios from 'axios';
 
 export default function VideoHistory() {
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [detections, setDetections] = useState([]);
   const [showDetections, setShowDetections] = useState(false);
-  const API_BASE = 'http://localhost:8000';
 
   useEffect(() => {
-    if (user) {
+    if (currentUser) {
       fetchVideoHistory();
     }
-  }, [user]);
+  }, [currentUser]);
 
   const fetchVideoHistory = async () => {
     try {
       setLoading(true);
       const response = await axios.get(`${API_BASE}/videos/history`, {
-        params: { user_email: user?.email }
+        params: { email: currentUser?.email }
       });
       setVideos(response.data.videos || []);
     } catch (error) {
@@ -60,11 +60,11 @@ export default function VideoHistory() {
   };
 
   const getStatusColor = (status) => {
-    return status === 'safe' ? 'text-emerald-400' : 'text-red-400';
+    return status?.toLowerCase() === 'safe' ? 'text-emerald-400' : 'text-red-400';
   };
 
   const getStatusBgColor = (status) => {
-    return status === 'safe' ? 'bg-emerald-500/20' : 'bg-red-500/20';
+    return status?.toLowerCase() === 'safe' ? 'bg-emerald-500/20' : 'bg-red-500/20';
   };
 
   return (
@@ -107,13 +107,20 @@ export default function VideoHistory() {
                             {video.overall_status.toUpperCase()}
                           </span>
                           <span className="text-slate-400">
-                            Confidence: {(video.confidence * 100).toFixed(1)}%
+                            {video.overall_status?.toUpperCase() === 'SAFE'
+                              ? `Prediction (Safe): ${video.safe_percentage != null
+                                  ? `${video.safe_percentage.toFixed(1)}%`
+                                  : (video.confidence != null ? `${(video.confidence * 100).toFixed(1)}%` : '—')}`
+                              : `Prediction (Unsafe): ${video.unsafe_percentage != null
+                                  ? `${video.unsafe_percentage.toFixed(1)}%`
+                                  : (video.confidence != null ? `${((1 - video.confidence) * 100).toFixed(1)}%` : '—')}`
+                            }
                           </span>
                         </div>
                       </div>
                       <div className={`${getStatusBgColor(video.overall_status)} px-3 py-1 rounded-lg`}>
                         <span className={getStatusColor(video.overall_status)}>
-                          {video.overall_status === 'safe' ? '✓' : '⚠️'}
+                          {video.overall_status?.toLowerCase() === 'safe' ? '✓' : '⚠️'}
                         </span>
                       </div>
                     </div>
@@ -148,6 +155,23 @@ export default function VideoHistory() {
                     </p>
                   </div>
                   <div>
+                    <p className="text-slate-400 text-sm">
+                      {selectedVideo.overall_status?.toUpperCase() === 'SAFE' 
+                        ? 'Prediction (Safe)' 
+                        : 'Prediction (Unsafe)'}
+                    </p>
+                    <p className="text-white">
+                      {selectedVideo.overall_status?.toUpperCase() === 'SAFE'
+                        ? (selectedVideo.safe_percentage != null
+                            ? `${selectedVideo.safe_percentage.toFixed(1)}%`
+                            : (selectedVideo.confidence != null ? `${(selectedVideo.confidence * 100).toFixed(1)}%` : '—'))
+                        : (selectedVideo.unsafe_percentage != null
+                            ? `${selectedVideo.unsafe_percentage.toFixed(1)}%`
+                            : (selectedVideo.confidence != null ? `${((1 - selectedVideo.confidence) * 100).toFixed(1)}%` : '—'))
+                      }
+                    </p>
+                  </div>
+                  <div>
                     <p className="text-slate-400 text-sm">Duration</p>
                     <p className="text-white">
                       {selectedVideo.duration_seconds.toFixed(2)}s
@@ -155,6 +179,24 @@ export default function VideoHistory() {
                   </div>
                 </div>
               </div>
+
+              {selectedVideo.video_url && (
+                <div className="mb-6 border-t border-white/10 pt-6">
+                  <h4 className="font-semibold text-white mb-3">Processed Video</h4>
+                  <div className="rounded-lg overflow-hidden bg-slate-950">
+                    <video
+                      src={`${API_BASE}${selectedVideo.video_url}`}
+                      controls
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-full h-auto"
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
+                </div>
+              )}
 
               {/* Detections */}
               {showDetections && (

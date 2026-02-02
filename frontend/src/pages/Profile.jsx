@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import API_BASE from '../config/api';
 
 const Profile = () => {
   const { currentUser, logout } = useAuth();
@@ -23,7 +24,7 @@ const Profile = () => {
           setLoading(false);
           return;
         }
-        const response = await fetch(`http://localhost:8000/videos/history?email=${currentUser.email}`);
+        const response = await fetch(`${API_BASE}/videos/history?email=${currentUser.email}`);
         if (!response.ok) {
           throw new Error('Failed to load video history');
         }
@@ -47,9 +48,10 @@ const Profile = () => {
           return;
         }
         const token = await currentUser.getIdToken();
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch(`${API_BASE}/user/profile`, {
           headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
+            'X-User-Email': currentUser.email
           }
         });
         if (response.ok) {

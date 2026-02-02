@@ -7,6 +7,8 @@
 firebase-credentials.json
 firebase-*.json
 *-firebase-*.json
+serviceAccountKey.json
+*serviceAccount*.json
 
 # Python
 __pycache__/
@@ -50,6 +52,7 @@ env/
 # Project specific
 uploads/
 output/
+test_output/
 *.log
 node_modules/
 dist/

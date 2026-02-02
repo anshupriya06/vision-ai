@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_BASE from '../config/api';
 
 const Contact = () => {
   const [formData, setFormData] = useState({
@@ -8,6 +9,7 @@ const Contact = () => {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -20,8 +22,24 @@ const Contact = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // Here you would send the form data to your backend
-      console.log('Form submitted:', formData);
+      setError('');
+      const response = await fetch(`${API_BASE}/contact`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      });
+      if (!response.ok) {
+        let detail = 'Failed to send message';
+        try {
+          const data = await response.json();
+          detail = data?.detail || detail;
+        } catch (parseError) {
+          // ignore parse errors
+        }
+        throw new Error(detail);
+      }
       setSubmitted(true);
       setFormData({ name: '', email: '', subject: '', message: '' });
       
@@ -29,6 +47,7 @@ const Contact = () => {
       setTimeout(() => setSubmitted(false), 3000);
     } catch (error) {
       console.error('Error submitting form:', error);
+      setError(error.message || 'Failed to send message. Please try again.');
     }
   };
 
@@ -99,6 +118,11 @@ const Contact = () => {
               {submitted && (
                 <div className="mb-6 p-4 bg-safe/20 border border-safe rounded-lg">
                   <p className="text-safe font-semibold">Message sent successfully! We'll get back to you soon.</p>
+                </div>
+              )}
+              {error && (
+                <div className="mb-6 p-4 bg-unsafe/20 border border-unsafe rounded-lg">
+                  <p className="text-unsafe font-semibold">{error}</p>
                 </div>
               )}
 

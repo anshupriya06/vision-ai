@@ -1,28 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import API_BASE from '../config/api';
 import axios from 'axios';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 export default function DashboardStats() {
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
-  const API_BASE = 'http://localhost:8000';
+  
+  const COLORS = {
+    safe: '#10b981',
+    unsafe: '#ef4444',
+    primary: '#3b82f6',
+    accent: '#8b5cf6'
+  };
 
   useEffect(() => {
-    if (user) {
+    if (currentUser?.email) {
       fetchStats();
     }
-  }, [user]);
+  }, [currentUser]);
 
   const fetchStats = async () => {
     try {
       setLoading(true);
       const response = await axios.get(
-        `${API_BASE}/videos/stats/${user?.email}`
+        `${API_BASE}/videos/stats/${currentUser?.email}`
       );
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
+      // Set default stats if no data
+      setStats({
+        total_videos: 0,
+        safe_videos: 0,
+        unsafe_videos: 0,
+        average_confidence: 0,
+        unsafe_percentage: 0
+      });
     } finally {
       setLoading(false);
     }
@@ -48,11 +64,22 @@ export default function DashboardStats() {
     </div>
   );
 
+  // Prepare chart data
+  const pieData = stats ? [
+    { name: 'Safe', value: stats.safe_videos, color: COLORS.safe },
+    { name: 'Unsafe', value: stats.unsafe_videos, color: COLORS.unsafe }
+  ] : [];
+
+  const confidenceData = stats ? [
+    { name: 'Current Avg', value: (stats.average_confidence * 100).toFixed(1) },
+    { name: 'Target', value: 95 }
+  ] : [];
+
   return (
     <div className="w-full">
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-white mb-2">Safety Statistics</h2>
-        <p className="text-slate-400">Your video processing overview</p>
+        <p className="text-slate-400">Your video processing overview with detailed analytics</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -80,6 +107,82 @@ export default function DashboardStats() {
           color="text-yellow-400"
           icon="🎯"
         />
+      </div>
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Pie Chart - Safety Distribution */}
+        <div className="backdrop-blur-xl bg-white/5 rounded-xl border border-white/10 p-6">
+          <h3 className="text-xl font-semibold text-white mb-4">Safety Distribution</h3>
+          {stats.total_videos > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#fff'
+                  }}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-slate-400">
+              No data available yet
+            </div>
+          )}
+        </div>
+
+        {/* Bar Chart - Confidence Comparison */}
+        <div className="backdrop-blur-xl bg-white/5 rounded-xl border border-white/10 p-6">
+          <h3 className="text-xl font-semibold text-white mb-4">Confidence Analysis</h3>
+          {stats.total_videos > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={confidenceData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis 
+                  dataKey="name" 
+                  stroke="#94a3b8"
+                  style={{ fontSize: '14px' }}
+                />
+                <YAxis 
+                  stroke="#94a3b8"
+                  style={{ fontSize: '14px' }}
+                  domain={[0, 100]}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '8px',
+                    color: '#fff'
+                  }}
+                />
+                <Bar dataKey="value" fill={COLORS.accent} radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-slate-400">
+              No data available yet
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Safety Score Bar */}

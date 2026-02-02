@@ -18,7 +18,8 @@ DATABASE_URL = os.getenv(
 )
 
 # Create SQLAlchemy engine
-engine = create_engine(DATABASE_URL, echo=True)
+# Set echo=False for production (no SQL query logging for better performance)
+engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
