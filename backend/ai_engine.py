@@ -160,8 +160,8 @@ def process_video(input_path: str, output_path: str) -> dict:
         processed_frames = 0
         unsafe_frame_count = 0
         
-        # OPTIMIZATION: Process every Nth frame for speed (analyze 1 out of 3 frames)
-        frame_skip = 3  # Process every 3rd frame for 3x speed boost
+        # OPTIMIZATION: Process every Nth frame for speed (analyze 1 out of 5 frames)
+        frame_skip = 5  # Process every 5th frame for 5x speed boost (free tier optimization)
         frame_count = 0
         
         logger.info(f"Processing {total_frames} frames (analyzing every {frame_skip} frames for speed)...")
