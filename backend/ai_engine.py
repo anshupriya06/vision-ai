@@ -4,7 +4,9 @@ import logging
 from pathlib import Path
 
 # Add model directory to path
-MODEL_DIR = Path(__file__).parent.parent / "model"
+_backend_model_dir = Path(__file__).parent / "model"
+_repo_model_dir = Path(__file__).parent.parent / "model"
+MODEL_DIR = _backend_model_dir if _backend_model_dir.exists() else _repo_model_dir
 sys.path.insert(0, str(MODEL_DIR))
 
 # Setup logging
@@ -33,7 +35,12 @@ def load_models():
             yolo_model = YOLO(str(yolo_path))
             logger.info(f"✓ Loaded YOLOv8 from {yolo_path}")
         else:
-            logger.warning(f"YOLOv8 model not found at {yolo_path}")
+            logger.warning(f"YOLOv8 model not found at {yolo_path}, attempting auto-download")
+            try:
+                yolo_model = YOLO("yolov8n.pt")
+                logger.info("✓ Downloaded YOLOv8 weights")
+            except Exception as download_error:
+                logger.error(f"Failed to download YOLOv8 weights: {download_error}")
             
         # Load pose classification model
         pose_model_path = MODEL_DIR / "models" / "pose_activity_model.pkl"
@@ -67,9 +74,9 @@ def process_video(input_path: str, output_path: str) -> dict:
         if yolo_model is None:
             load_models()
             
-        # If models still not available, return placeholder result
-        if yolo_model is None or pose_model is None:
-            logger.warning("AI models not available, using placeholder detection")
+        # If YOLO is not available, return placeholder result
+        if yolo_model is None:
+            logger.warning("YOLO model not available, using placeholder detection")
             import shutil
             shutil.copy(input_path, output_path)
             return {
@@ -78,7 +85,8 @@ def process_video(input_path: str, output_path: str) -> dict:
                 "detected_activities": ["Unknown"],
                 "unsafe_events": [],
                 "total_frames": 0,
-                "processed_frames": 0
+                "processed_frames": 0,
+                "detections": []
             }
         
         import cv2
@@ -148,6 +156,7 @@ def process_video(input_path: str, output_path: str) -> dict:
         
         detected_activities = []
         unsafe_events = []
+        detections = []
         processed_frames = 0
         unsafe_frame_count = 0
         
@@ -188,19 +197,20 @@ def process_video(input_path: str, output_path: str) -> dict:
                     if person_crop.size == 0:
                         continue
                         
-                    feats = extract_angles_from_person(person_crop)
-                    
-                    if feats is not None:
-                        X_pred = pd.DataFrame([feats], columns=feature_cols)
-                        X_scaled = scaler.transform(X_pred)
-                        pred = pose_model.predict(X_scaled)[0]
-                    else:
-                        pred = "Unknown"
+                    pred = "Person"
+                    if pose_model is not None and scaler is not None and feature_cols is not None:
+                        feats = extract_angles_from_person(person_crop)
+                        if feats is not None:
+                            X_pred = pd.DataFrame([feats], columns=feature_cols)
+                            X_scaled = scaler.transform(X_pred)
+                            pred = pose_model.predict(X_scaled)[0]
+                        else:
+                            pred = "Unknown"
                     
                     detected_activities.append(pred)
                     
                     # Safety decision
-                    if pred in SAFE_ACTIVITIES:
+                    if pred in SAFE_ACTIVITIES or pred == "Person":
                         status = "SAFE"
                         color = (0, 255, 0)
                     else:
@@ -212,6 +222,20 @@ def process_video(input_path: str, output_path: str) -> dict:
                     cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
                     cv2.putText(frame, f"{pred} ({status})", (x1,y1-10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+
+                    detections.append({
+                        "frame_number": int(frame_count),
+                        "activity_label": pred,
+                        "safety_status": status,
+                        "timestamp_seconds": float(frame_count / fps) if fps else 0.0,
+                        "confidence": float(conf),
+                        "bounding_box": {
+                            "x1": int(x1),
+                            "y1": int(y1),
+                            "x2": int(x2),
+                            "y2": int(y2)
+                        }
+                    })
                 
                 # Vehicle detection = UNSAFE
                 elif cls_id in [1, 2, 3]:  # bicycle, car, motorcycle
@@ -222,6 +246,20 @@ def process_video(input_path: str, output_path: str) -> dict:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
                     frame_has_unsafe = True
                     unsafe_events.append({"frame": processed_frames, "activity": vehicle_name})
+
+                    detections.append({
+                        "frame_number": int(frame_count),
+                        "activity_label": vehicle_name,
+                        "safety_status": "UNSAFE",
+                        "timestamp_seconds": float(frame_count / fps) if fps else 0.0,
+                        "confidence": float(conf),
+                        "bounding_box": {
+                            "x1": int(x1),
+                            "y1": int(y1),
+                            "x2": int(x2),
+                            "y2": int(y2)
+                        }
+                    })
             
             if frame_has_unsafe:
                 unsafe_frame_count += 1
@@ -243,6 +281,7 @@ def process_video(input_path: str, output_path: str) -> dict:
             "confidence": round(confidence, 2),
             "detected_activities": list(set(detected_activities))[:10],
             "unsafe_events": unsafe_events[:20],
+            "detections": detections,
             "total_frames": total_frames,
             "duration": round(duration_seconds, 2),
             "processed_frames": processed_frames,
