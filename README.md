@@ -100,24 +100,7 @@ vision-ai/
 └── model/           # AI model training
 ```
 
-## 🔐 Security Note
 
-**Never commit these files:**
-- `.env` files
-- `serviceAccountKey.json`
-- Database credentials
-- API keys
-
-These are already in `.gitignore`
-
-## 🤝 Sharing with Friends
-
-1. Push to GitHub or share as ZIP file
-2. Share the [SETUP_GUIDE.md](SETUP_GUIDE.md) with setup instructions
-3. Each person needs their own:
-   - Firebase project (free tier available)
-   - PostgreSQL database (local installation)
-   - Environment configuration
 
 ## 📝 License
 
