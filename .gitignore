@@ -1,0 +1,56 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Firebase credentials
+serviceAccountKey.json
+*serviceAccount*.json
+firebase-*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# Node
+node_modules/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads and Output
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/output/*
+!backend/output/.gitkeep
+model/output/*
+!model/output/.gitkeep
+
+# Model files (large)
+*.pt
+*.pth
+*.onnx
+*.tflite

@@ -60,6 +60,95 @@ def load_models():
         logger.error(f"Error loading models: {e}")
         return False
 
+class BoundingBoxTracker:
+    """Rigid bounding boxes using strong exponential moving average"""
+    def __init__(self, smoothing_factor=0.95):
+        self.tracks = {}  # {track_id: {'box': [x1,y1,x2,y2], 'label': str, 'frames_missing': int}}
+        self.next_id = 0
+        self.smoothing_factor = smoothing_factor  # 0.95 = rigid boxes, almost no movement
+        self.max_missing_frames = 20
+        
+    def update(self, detections):
+        """Update tracks with new detections and return smoothed boxes"""
+        import numpy as np
+        
+        # Remove stale tracks
+        to_remove = [tid for tid, track in self.tracks.items() 
+                     if track['frames_missing'] > self.max_missing_frames]
+        for tid in to_remove:
+            del self.tracks[tid]
+        
+        # Mark all existing tracks as missing
+        for track in self.tracks.values():
+            track['frames_missing'] += 1
+        
+        smoothed_detections = []
+        
+        for det in detections:
+            x1, y1, x2, y2 = det['box']
+            label = det['label']
+            
+            # Find matching track (conservative IoU matching for rigid continuity)
+            best_match_id = None
+            best_iou = 0.2  # Lower threshold for better matching across frames
+            
+            for tid, track in self.tracks.items():
+                if track['label'] == label:
+                    iou = self._calculate_iou([x1,y1,x2,y2], track['box'])
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_match_id = tid
+            
+            # Update existing track or create new one
+            if best_match_id is not None:
+                track = self.tracks[best_match_id]
+                # Smooth the coordinates using EMA
+                old_box = track['box']
+                smooth_box = [
+                    int(self.smoothing_factor * old_box[0] + (1-self.smoothing_factor) * x1),
+                    int(self.smoothing_factor * old_box[1] + (1-self.smoothing_factor) * y1),
+                    int(self.smoothing_factor * old_box[2] + (1-self.smoothing_factor) * x2),
+                    int(self.smoothing_factor * old_box[3] + (1-self.smoothing_factor) * y2)
+                ]
+                track['box'] = smooth_box
+                track['frames_missing'] = 0
+                smoothed_detections.append({**det, 'box': smooth_box, 'track_id': best_match_id})
+            else:
+                # New track
+                new_id = self.next_id
+                self.next_id += 1
+                self.tracks[new_id] = {
+                    'box': [x1, y1, x2, y2],
+                    'label': label,
+                    'frames_missing': 0
+                }
+                smoothed_detections.append({**det, 'box': [x1,y1,x2,y2], 'track_id': new_id})
+        
+        return smoothed_detections
+    
+    def _calculate_iou(self, box1, box2):
+        """Calculate Intersection over Union"""
+        x1_min, y1_min, x1_max, y1_max = box1
+        x2_min, y2_min, x2_max, y2_max = box2
+        
+        # Intersection area
+        inter_x_min = max(x1_min, x2_min)
+        inter_y_min = max(y1_min, y2_min)
+        inter_x_max = min(x1_max, x2_max)
+        inter_y_max = min(y1_max, y2_max)
+        
+        if inter_x_max < inter_x_min or inter_y_max < inter_y_min:
+            return 0.0
+        
+        inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
+        
+        # Union area
+        box1_area = (x1_max - x1_min) * (y1_max - y1_min)
+        box2_area = (x2_max - x2_min) * (y2_max - y2_min)
+        union_area = box1_area + box2_area - inter_area
+        
+        return inter_area / union_area if union_area > 0 else 0.0
+
 def process_video(input_path: str, output_path: str) -> dict:
     """Process video with YOLOv8 and pose classification to detect safe/unsafe activities"""
     
@@ -93,6 +182,9 @@ def process_video(input_path: str, output_path: str) -> dict:
         import numpy as np
         import mediapipe as mp
         import pandas as pd
+        
+        # Initialize bounding box tracker for RIGID boxes (0.95 = barely moves, no flickering)
+        bbox_tracker = BoundingBoxTracker(smoothing_factor=0.95)
         
         # MediaPipe Pose setup (optimized for speed)
         mp_pose = mp.solutions.pose
@@ -160,11 +252,11 @@ def process_video(input_path: str, output_path: str) -> dict:
         processed_frames = 0
         unsafe_frame_count = 0
         
-        # OPTIMIZATION: Process every Nth frame for speed (analyze 1 out of 5 frames)
-        frame_skip = 5  # Process every 5th frame for 5x speed boost (free tier optimization)
+        # Process EVERY frame for rigid, continuous tracking (no gaps = no flickering)
+        frame_skip = 1  # Process every frame for rigid, stable boxes
         frame_count = 0
         
-        logger.info(f"Processing {total_frames} frames (analyzing every {frame_skip} frames for speed)...")
+        logger.info(f"Processing {total_frames} frames (analyzing every frame for rigid tracking)...")
         
         while True:
             ret, frame = cap.read()
@@ -182,6 +274,9 @@ def process_video(input_path: str, output_path: str) -> dict:
             frame_has_unsafe = False
             
             results = yolo_model.predict(frame, verbose=False)[0]
+            
+            # Collect all detections for this frame
+            frame_detections = []
             
             for box in results.boxes:
                 cls_id = int(box.cls[0])
@@ -219,47 +314,58 @@ def process_video(input_path: str, output_path: str) -> dict:
                         frame_has_unsafe = True
                         unsafe_events.append({"frame": processed_frames, "activity": pred})
                     
-                    cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
-                    cv2.putText(frame, f"{pred} ({status})", (x1,y1-10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-
-                    detections.append({
-                        "frame_number": int(frame_count),
-                        "activity_label": pred,
-                        "safety_status": status,
-                        "timestamp_seconds": float(frame_count / fps) if fps else 0.0,
-                        "confidence": float(conf),
-                        "bounding_box": {
-                            "x1": int(x1),
-                            "y1": int(y1),
-                            "x2": int(x2),
-                            "y2": int(y2)
-                        }
+                    frame_detections.append({
+                        'box': [x1, y1, x2, y2],
+                        'label': pred,
+                        'status': status,
+                        'color': color,
+                        'conf': conf
                     })
                 
                 # Vehicle detection = UNSAFE
                 elif cls_id in [1, 2, 3]:  # bicycle, car, motorcycle
                     vehicle_names = {1: "BIKE", 2: "CAR", 3: "MOTORCYCLE"}
                     vehicle_name = vehicle_names.get(cls_id, "VEHICLE")
-                    cv2.rectangle(frame, (x1,y1), (x2,y2), (0,0,255), 2)
-                    cv2.putText(frame, f"{vehicle_name} (UNSAFE)", (x1,y1-10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
                     frame_has_unsafe = True
                     unsafe_events.append({"frame": processed_frames, "activity": vehicle_name})
-
-                    detections.append({
-                        "frame_number": int(frame_count),
-                        "activity_label": vehicle_name,
-                        "safety_status": "UNSAFE",
-                        "timestamp_seconds": float(frame_count / fps) if fps else 0.0,
-                        "confidence": float(conf),
-                        "bounding_box": {
-                            "x1": int(x1),
-                            "y1": int(y1),
-                            "x2": int(x2),
-                            "y2": int(y2)
-                        }
+                    
+                    frame_detections.append({
+                        'box': [x1, y1, x2, y2],
+                        'label': vehicle_name,
+                        'status': 'UNSAFE',
+                        'color': (0, 0, 255),
+                        'conf': conf
                     })
+            
+            # Apply smoothing to bounding boxes
+            smoothed_detections = bbox_tracker.update(frame_detections)
+            
+            # Draw smoothed boxes and save detection data
+            for det in smoothed_detections:
+                x1, y1, x2, y2 = det['box']
+                label = det['label']
+                status = det['status']
+                color = det['color']
+                conf = det['conf']
+                
+                # Draw with thicker lines for stability
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
+                cv2.putText(frame, f"{label} ({status})", (x1, y1-10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+                
+                detections.append({
+                    "frame_number": int(frame_count),
+                    "activity_label": label,
+                    "safety_status": status,
+                    "timestamp_seconds": float(frame_count / fps) if fps else 0.0,
+                    "confidence": float(conf),
+                    "bounding_box": {
+                        "x1": int(x1),
+                        "y1": int(y1),
+                        "x2": int(x2),
+                        "y2": int(y2)
+                    }
+                })
             
             if frame_has_unsafe:
                 unsafe_frame_count += 1
