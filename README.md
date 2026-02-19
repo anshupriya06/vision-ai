@@ -304,10 +304,141 @@ vision-ai/
 
 
 
+## � Environment Variables Reference
+
+### Backend (`.env`)
+```env
+# Database
+DATABASE_URL=postgresql://postgres:1234@localhost:5432/visionsafe
+
+# Firebase
+GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
+
+# Email (Gmail example)
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SENDER_EMAIL=your-email@gmail.com
+SENDER_PASSWORD=your-app-password
+
+# URLs
+BACKEND_URL=http://localhost:8000
+FRONTEND_URL=http://localhost:5173
+
+# Settings
+DEBUG=True
+LOG_LEVEL=INFO
+```
+
+### Frontend (`.env`)
+```env
+# Firebase Configuration
+VITE_FIREBASE_API_KEY=AIzaSyD...
+VITE_FIREBASE_AUTH_DOMAIN=my-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=my-project-id
+VITE_FIREBASE_STORAGE_BUCKET=my-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=1:123456789:web:abc123...
+VITE_FIREBASE_MEASUREMENT_ID=G-ABC123...
+
+# API
+VITE_API_URL=http://localhost:8000
+```
+
+## 🚀 Deployment
+
+### Production Checklist
+- [ ] Update `DEBUG=False` in backend `.env`
+- [ ] Use strong database credentials
+- [ ] Enable HTTPS for all URLs
+- [ ] Configure Firebase in production mode
+- [ ] Set up cloud PostgreSQL database
+- [ ] Store secrets in environment variables (never commit `.env`)
+- [ ] Enable CORS for production domains only
+- [ ] Set up proper logging and monitoring
+- [ ] Configure CI/CD pipeline
+
+### Cloud Deployment Options
+- **Backend**: AWS Elastic Beanstalk, Heroku, Google Cloud Run, Azure App Service
+- **Frontend**: Vercel, Netlify, AWS S3 + CloudFront
+- **Database**: AWS RDS PostgreSQL, Azure Database for PostgreSQL, Google Cloud SQL
+- **Storage**: AWS S3, Azure Blob Storage, Google Cloud Storage
+
+## 📞 Support & Contact
+
+For issues, questions, or feature requests:
+- Open an issue on GitHub Issues
+- Check [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed instructions
+- Review [Troubleshooting](#-troubleshooting) section
+
 ## 📝 License
 
-This project is for educational purposes.
+This project is provided for educational and research purposes.
+
+## 👨‍💻 Contributors
+
+Contributions are welcome! Please follow the standard GitHub fork/pull request workflow.
+
+---
+
+**Last Updated**: February 2026  
+**Version**: 1.0.0
 
 ## 🐛 Troubleshooting
 
-See [SETUP_GUIDE.md](SETUP_GUIDE.md#troubleshooting) for common issues and solutions.
+### Common Issues & Solutions
+
+#### Database Connection Error
+```
+Error: psycopg2.OperationalError: could not connect to server: Connection refused
+```
+**Solution:**
+- Ensure PostgreSQL is running: `psql -U postgres`
+- Verify DATABASE_URL in `.env` matches your PostgreSQL configuration
+- Default: `postgresql://postgres:1234@localhost:5432/visionsafe`
+
+#### Firebase Authentication Failed
+```
+Error: Invalid or expired token
+```
+**Solution:**
+- Verify `serviceAccountKey.json` is in backend directory
+- Check Firebase credentials match your project
+- Ensure GOOGLE_APPLICATION_CREDENTIALS env variable is set
+
+#### YOLOv8 Model Not Found
+```
+FileNotFoundError: model/yolov8n.pt
+```
+**Solution:**
+- Model will auto-download on first use (~100MB)
+- Ensure write permissions in `backend/model/` directory
+- Check internet connection for model download
+
+#### Port Already in Use
+```
+Address already in use: ('0.0.0.0', 8000)
+```
+**Solution:**
+- Change port: `uvicorn app:app --port 8001`
+- Kill process: `lsof -ti:8000 | xargs kill -9` (macOS/Linux)
+- Windows: Use Task Manager to kill process on port 8000
+
+#### CORS Errors
+```
+Cross-Origin Request Blocked
+```
+**Solution:**
+- Check CORS configuration in `backend/app.py`
+- Ensure frontend URL matches CORS allowed origins
+- In development, typically `http://localhost:5173`
+
+#### Out of Memory During Video Processing
+```
+MemoryError: Unable to allocate memory for processing
+```
+**Solution:**
+- Reduce video resolution input
+- Process shorter video segments
+- Increase system RAM or use cloud GPU
+
+For more help, see [SETUP_GUIDE.md](SETUP_GUIDE.md#troubleshooting)
