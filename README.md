@@ -2,6 +2,8 @@
 
 An intelligent video surveillance system that uses AI to detect and classify safety-critical activities in real-time.
 
+## 🚀 [Live Demo](https://vision-ai-delta.vercel.app/)
+
 ## Features
 
 - Real-time video processing and analysis

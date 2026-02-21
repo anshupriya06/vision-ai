@@ -13,9 +13,6 @@ sys.path.insert(0, str(MODEL_DIR))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global variables for models
-yolo_model = None
-pose_model = None
 scaler = None
 feature_cols = None
 
