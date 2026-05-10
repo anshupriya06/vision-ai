@@ -5,10 +5,17 @@ import API_BASE from '../config/api';
 import VideoHistory from './VideoHistory';
 import DashboardStats from './DashboardStats';
 
+const StatusDot = ({ active, color = 'cyan' }) => {
+  const colors = { cyan: 'bg-neon-cyan', green: 'bg-neon-green', red: 'bg-neon-red' };
+  return (
+    <span className={`inline-block w-2 h-2 rounded-full ${active ? colors[color] + ' animate-pulse' : 'bg-slate-600'}`} />
+  );
+};
+
 const Dashboard = ({ setCurrentPage }) => {
   const { currentUser } = useAuth();
   const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState('idle'); // idle, uploading, processing, completed, error
+  const [uploadStatus, setUploadStatus] = useState('idle');
   const [processedVideo, setProcessedVideo] = useState(null);
   const [safetyStatus, setSafetyStatus] = useState(null);
   const [unsafePercentage, setUnsafePercentage] = useState(null);
@@ -16,138 +23,48 @@ const Dashboard = ({ setCurrentPage }) => {
   const [modelConfidence, setModelConfidence] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  const [activeTab, setActiveTab] = useState('upload'); // upload, history, stats
+  const [activeTab, setActiveTab] = useState('upload');
   const [quickStats, setQuickStats] = useState(null);
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
 
-  // Fetch quick stats
-  useEffect(() => {
-    if (currentUser?.email) {
-      fetchQuickStats();
-    }
-  }, [currentUser]);
-
-  // Reload video when processedVideo changes
+  useEffect(() => { if (currentUser?.email) fetchQuickStats(); }, [currentUser]);
   useEffect(() => {
     if (processedVideo && videoRef.current) {
-      console.log('🎥 Loading video:', `${API_BASE}${processedVideo}`);
       videoRef.current.load();
-      videoRef.current.play().catch(err => {
-        console.log('Autoplay prevented:', err);
-      });
+      videoRef.current.play().catch(() => {});
     }
   }, [processedVideo]);
 
   const fetchQuickStats = async () => {
     try {
-      console.log('📊 Fetching stats for:', currentUser?.email);
-      const response = await axios.get(`${API_BASE}/videos/stats/${currentUser?.email}`);
-      console.log('📊 Stats response:', response.data);
-      setQuickStats(response.data);
-    } catch (error) {
-      console.error('❌ Error fetching quick stats:', error);
-      console.error('Error response:', error.response?.data);
-      setQuickStats({
-        total_videos: 0,
-        safe_videos: 0,
-        average_confidence: 0
-      });
-    }
+      const r = await axios.get(`${API_BASE}/videos/stats/${currentUser?.email}`);
+      setQuickStats(r.data);
+    } catch { setQuickStats({ total_videos: 0, safe_videos: 0, average_confidence: 0 }); }
   };
 
-  // Handle file selection
   const handleFileSelect = (file) => {
     if (file && file.type.startsWith('video/')) {
-      setSelectedFile(file);
-      setErrorMessage('');
-      setProcessedVideo(null);
-      setSafetyStatus(null);
-    } else {
-      setErrorMessage('Please select a valid video file');
-    }
+      setSelectedFile(file); setErrorMessage(''); setProcessedVideo(null); setSafetyStatus(null);
+    } else { setErrorMessage('Please select a valid video file'); }
   };
 
-  // Handle drag and drop
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+  const handleDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFileSelect(e.dataTransfer.files[0]); };
 
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    handleFileSelect(file);
-  };
-
-  // Handle file input change
-  const handleFileInputChange = (e) => {
-    const file = e.target.files[0];
-    handleFileSelect(file);
-  };
-
-  // Handle video upload
   const handleUpload = async () => {
-    if (!selectedFile) {
-      setErrorMessage('Please select a video file first');
-      return;
-    }
-
+    if (!selectedFile) { setErrorMessage('Please select a video file first'); return; }
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('user_email', currentUser?.email || 'anonymous');
-
     try {
-      setUploadStatus('uploading');
-      setErrorMessage('');
-
-      // Get Firebase ID token
+      setUploadStatus('uploading'); setErrorMessage('');
       let token = null;
-      if (currentUser) {
-        try {
-          token = await currentUser.getIdToken();
-        } catch (tokenError) {
-          console.warn('Could not get ID token:', tokenError);
-        }
-      }
-
-      // Build headers
-      const headers = {
-        'Content-Type': 'multipart/form-data',
-      };
-      
-      // Add Authorization header if token is available
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      // Upload video (with extended timeout for video processing)
-      const response = await axios.post(`${API_BASE}/upload-video`, formData, {
-        headers,
-        timeout: 600000, // 10 minutes timeout for processing
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          console.log('Upload progress:', percentCompleted + '%');
-        },
-      });
-
+      if (currentUser) { try { token = await currentUser.getIdToken(); } catch {} }
+      const headers = { 'Content-Type': 'multipart/form-data' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const response = await axios.post(`${API_BASE}/upload-video`, formData, { headers, timeout: 600000 });
       setUploadStatus('processing');
-
-      // Simulate processing delay (remove if backend handles this)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Set results
-      console.log('✅ Video processed successfully!');
-      console.log('Response data:', response.data);
-      console.log('Video URL:', response.data.video_url);
-      console.log('Full URL will be:', `${API_BASE}${response.data.video_url}`);
-      
+      await new Promise(r => setTimeout(r, 1000));
       setProcessedVideo(response.data.video_url);
       setSafetyStatus(response.data.status);
       setModelConfidence(response.data.confidence ?? null);
@@ -156,105 +73,65 @@ const Dashboard = ({ setCurrentPage }) => {
       setUnsafePercentage(unsafePct != null ? Number(unsafePct) : null);
       setSafePercentage(safePct != null ? Number(safePct) : null);
       setUploadStatus('completed');
-
-      if (currentUser?.email) {
-        console.log('Refreshing stats for user:', currentUser.email);
-        fetchQuickStats();
-      }
-      
+      if (currentUser?.email) fetchQuickStats();
     } catch (error) {
-      console.error('Upload error:', error);
-      console.error('Error response:', error.response?.data);
-      console.error('Error status:', error.response?.status);
       setUploadStatus('error');
-      
-      // Provide detailed error messages
-      if (error.response?.status === 401) {
-        setErrorMessage('Authentication failed. Please log in again.');
-      } else if (error.response?.status === 400) {
-        setErrorMessage(error.response?.data?.detail || 'Invalid file format. Please upload a video file.');
-      } else if (error.response?.status === 500) {
-        setErrorMessage(error.response?.data?.detail || 'Server error: Video processing failed. Please try again.');
-      } else if (error.code === 'ERR_NETWORK') {
-        setErrorMessage(`Network error: Cannot reach the backend server. Make sure it is running on ${API_BASE}`);
-      } else {
-        setErrorMessage(
-          error.response?.data?.detail || 
-          error.response?.data?.message ||
-          error.message || 
-          'Failed to upload video. Please try again.'
-        );
-      }
+      if (error.response?.status === 401) setErrorMessage('Authentication failed. Please log in again.');
+      else if (error.response?.status === 400) setErrorMessage(error.response?.data?.detail || 'Invalid file format.');
+      else if (error.response?.status === 500) setErrorMessage(error.response?.data?.detail || 'Server error. Please try again.');
+      else if (error.code === 'ERR_NETWORK') setErrorMessage(`Cannot reach backend at ${API_BASE}`);
+      else setErrorMessage(error.response?.data?.detail || error.message || 'Upload failed.');
     }
   };
 
-  // Reset upload
   const handleReset = () => {
-    setSelectedFile(null);
-    setUploadStatus('idle');
-    setProcessedVideo(null);
-    setSafetyStatus(null);
-    setUnsafePercentage(null);
-    setSafePercentage(null);
-    setModelConfidence(null);
-    setErrorMessage('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setSelectedFile(null); setUploadStatus('idle'); setProcessedVideo(null);
+    setSafetyStatus(null); setUnsafePercentage(null); setSafePercentage(null);
+    setModelConfidence(null); setErrorMessage('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Get status text
-  const getStatusText = () => {
-    switch (uploadStatus) {
-      case 'uploading':
-        return 'Uploading...';
-      case 'processing':
-        return 'Processing AI Model...';
-      case 'completed':
-        return 'Completed';
-      case 'error':
-        return 'Error';
-      default:
-        return '';
-    }
-  };
+  const tabs = [
+    { id: 'upload', label: 'UPLOAD FEED' },
+    { id: 'history', label: 'HISTORY' },
+    { id: 'stats', label: 'STATISTICS' },
+  ];
+
+  const isProcessing = uploadStatus === 'uploading' || uploadStatus === 'processing';
 
   return (
-    <section id="dashboard" className="py-20 px-4 sm:px-6 lg:px-8 min-h-screen">
+    <section className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 min-h-screen cyber-grid">
       <div className="max-w-7xl mx-auto">
-        {/* Welcome Section */}
-        <div className="glassmorphism p-8 rounded-xl mb-8">
-          <div className="flex items-center space-x-4">
+
+        {/* Header */}
+        <div className="glass-panel hud-frame p-5 rounded-sm mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-4">
             {currentUser?.photoURL && (
-              <img 
-                src={currentUser.photoURL} 
-                alt={currentUser.displayName}
-                className="w-16 h-16 rounded-full border-2 border-accent"
-              />
+              <img src={currentUser.photoURL} alt="" className="w-10 h-10 rounded-sm ring-1 ring-neon-cyan" />
             )}
             <div>
-              <h1 className="text-3xl font-bold text-white">
-                Welcome back, {currentUser?.displayName?.split(' ')[0] || 'User'}! 👋
+              <h1 className="font-orbitron text-lg font-bold text-white">
+                OPERATOR: <span className="text-neon-cyan">{currentUser?.displayName?.split(' ')[0]?.toUpperCase() || 'UNKNOWN'}</span>
               </h1>
-              <p className="text-gray-400">{currentUser?.email}</p>
+              <p className="font-mono-jet text-xs text-slate-500 tracking-wide">{currentUser?.email}</p>
             </div>
+          </div>
+          <div className="flex items-center gap-2 font-mono-jet text-xs text-neon-green">
+            <StatusDot active color="green" />
+            SYSTEM ACTIVE
           </div>
         </div>
 
-        {/* Tabs Navigation */}
-        <div className="flex gap-4 mb-8 overflow-x-auto pb-4">
-          {[
-            { id: 'upload', label: 'Upload Video' },
-            { id: 'history', label: 'History' },
-            { id: 'stats', label: 'Statistics' }
-          ].map((tab) => (
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 border border-neon-cyan/10 rounded-sm p-1 glass-panel w-fit">
+          {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-6 py-3 rounded-lg font-semibold transition-all whitespace-nowrap text-lg ${
+              className={`px-5 py-2 font-mono-jet text-xs tracking-widest rounded-sm transition-all ${
                 activeTab === tab.id
-                  ? 'bg-accent text-white shadow-lg shadow-accent/50'
-                  : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                  ? 'bg-neon-cyan text-cyber-black font-bold'
+                  : 'text-slate-500 hover:text-neon-cyan'
               }`}
             >
               {tab.label}
@@ -262,314 +139,179 @@ const Dashboard = ({ setCurrentPage }) => {
           ))}
         </div>
 
-        {/* Tab Content */}
+        {/* Upload Tab */}
         {activeTab === 'upload' && (
-        <div className="glassmorphism p-8 rounded-xl mb-8">
-          <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
-            <svg className="w-8 h-8 mr-3 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            AI Video Analysis
-          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-          {/* Upload Status */}
-          {uploadStatus !== 'idle' && uploadStatus !== 'error' && (
-            <div className="mb-6 glassmorphism p-4 rounded-lg border border-accent/30">
-              <div className="flex items-center space-x-3">
-                <div className="relative">
-                  <svg
-                    className={`${uploadStatus === 'processing' || uploadStatus === 'uploading' ? 'animate-spin' : ''} h-6 w-6 text-accent`}
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-white font-semibold">{getStatusText()}</p>
-                  <p className="text-sm text-gray-400">
-                    {uploadStatus === 'uploading'
-                      ? 'Uploading video to server...'
-                      : uploadStatus === 'processing'
-                        ? 'AI analysis in progress (typically 1-5 minutes depending on video length)'
-                        : 'Analysis complete. Results are ready below.'}
-                  </p>
-                  {uploadStatus === 'processing' && (
-                    <div className="mt-2 text-xs text-gray-500 space-y-1">
-                      <p>→ Analyzing frames with YOLOv8</p>
-                      <p>→ Detecting poses with MediaPipe</p>
-                      <p>→ Classifying activities</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+            {/* Main upload area */}
+            <div className="lg:col-span-2 space-y-6">
 
-          {/* Error Message */}
-          {errorMessage && (
-            <div className="mb-6 bg-unsafe/10 border border-unsafe rounded-lg p-4">
-              <div className="flex items-center space-x-3">
-                <svg className="w-6 h-6 text-unsafe flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-unsafe font-medium">{errorMessage}</p>
-              </div>
-            </div>
-          )}
-
-          {uploadStatus === 'idle' || uploadStatus === 'error' ? (
-            <>
-              {/* Drag and Drop Zone */}
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300 ${
-                  isDragging
-                    ? 'border-accent bg-accent/10 scale-105'
-                    : 'border-gray-600 hover:border-accent hover:bg-accent/5'
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="video/*"
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                />
-                
-                <div className="flex flex-col items-center space-y-4">
-                  <div className={`p-4 rounded-full ${isDragging ? 'bg-accent/20' : 'bg-slate-800'} transition-colors`}>
-                    <svg className="w-16 h-16 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
+              {/* Processing status */}
+              {isProcessing && (
+                <div className="glass-panel border border-neon-cyan/30 p-4 rounded-sm">
+                  <div className="font-mono-jet text-xs text-neon-cyan tracking-widest mb-3 flex items-center gap-2">
+                    <StatusDot active color="cyan" /> AI ANALYSIS IN PROGRESS
                   </div>
-                  
-                  <div>
-                    <p className="text-xl font-semibold text-white mb-2">
-                      {isDragging ? 'Drop your video here' : 'Drag & drop your video here'}
-                    </p>
-                    <p className="text-gray-400">or click to browse files</p>
+                  <div className="space-y-2">
+                    {['UPLOADING VIDEO FEED', 'RUNNING YOLO DETECTION', 'MEDIAPIPE POSE ESTIMATION', 'CLASSIFYING ACTIVITIES'].map((step, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className={`w-1.5 h-1.5 rounded-full ${i <= (uploadStatus === 'uploading' ? 0 : 2) ? 'bg-neon-cyan animate-pulse' : 'bg-slate-700'}`} />
+                        <span className={`font-mono-jet text-xs tracking-wider ${i <= (uploadStatus === 'uploading' ? 0 : 2) ? 'text-slate-300' : 'text-slate-600'}`}>{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Error */}
+              {errorMessage && (
+                <div className="glass-panel neon-border-red p-4 rounded-sm flex items-start gap-3">
+                  <span className="text-neon-red font-mono-jet text-lg leading-none">!</span>
+                  <p className="font-mono-jet text-xs text-neon-red tracking-wide">{errorMessage}</p>
+                </div>
+              )}
+
+              {/* Upload zone or results */}
+              {(uploadStatus === 'idle' || uploadStatus === 'error') && (
+                <div className="glass-panel rounded-sm overflow-hidden">
+                  <div className="px-5 py-3 border-b border-neon-cyan/10 flex items-center gap-2">
+                    <StatusDot active={!!selectedFile} color="cyan" />
+                    <span className="font-mono-jet text-xs tracking-widest text-slate-400">VIDEO FEED INPUT</span>
+                  </div>
+
+                  <div
+                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`m-4 border-2 border-dashed rounded-sm p-12 text-center cursor-pointer transition-all ${
+                      isDragging ? 'border-neon-cyan bg-neon-cyan/5 shadow-neon-cyan' : 'border-slate-700 hover:border-neon-cyan/50'
+                    }`}
+                  >
+                    <input ref={fileInputRef} type="file" accept="video/*" onChange={e => handleFileSelect(e.target.files[0])} className="hidden" />
+                    <div className="flex flex-col items-center gap-4">
+                      <svg className={`w-12 h-12 ${isDragging ? 'text-neon-cyan' : 'text-slate-600'} transition-colors`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      <div>
+                        <p className="font-orbitron text-sm text-white mb-1">{isDragging ? 'RELEASE TO UPLOAD' : 'DROP VIDEO FEED'}</p>
+                        <p className="font-mono-jet text-xs text-slate-500 tracking-wide">or click to browse files</p>
+                      </div>
+                      {selectedFile && (
+                        <div className="flex items-center gap-2 px-4 py-2 border border-neon-green/30 bg-neon-green/5 rounded-sm">
+                          <StatusDot active color="green" />
+                          <span className="font-mono-jet text-xs text-neon-green">{selectedFile.name}</span>
+                          <button onClick={e => { e.stopPropagation(); handleReset(); }} className="text-slate-500 hover:text-neon-red transition-colors ml-2">✕</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {selectedFile && (
-                    <div className="glassmorphism px-6 py-3 rounded-lg mt-4">
-                      <div className="flex items-center space-x-3">
-                        <svg className="w-5 h-5 text-safe" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <div className="px-4 pb-4 flex justify-center">
+                      <button onClick={handleUpload} className="btn-cyber-solid px-8 py-3 font-orbitron text-sm tracking-widest flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                         </svg>
-                        <span className="text-white font-medium">{selectedFile.name}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleReset();
-                          }}
-                          className="text-gray-400 hover:text-unsafe transition-colors"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
+                        ANALYZE FEED
+                      </button>
                     </div>
                   )}
                 </div>
-              </div>
+              )}
 
-              {/* Upload Button */}
-              {selectedFile && (
-                <div className="mt-6 flex justify-center">
-                  <button
-                    onClick={handleUpload}
-                    disabled={uploadStatus === 'uploading' || uploadStatus === 'processing'}
-                    className="group relative px-8 py-4 bg-accent text-white font-semibold rounded-xl overflow-hidden hover:shadow-lg hover:shadow-accent/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-accent to-safe transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left"></span>
-                    <span className="relative flex items-center gap-2">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      Upload & Analyze Video
-                    </span>
-                  </button>
+              {/* Results */}
+              {uploadStatus === 'completed' && processedVideo && (
+                <div className="space-y-4">
+                  {/* Status badge */}
+                  <div className={`glass-panel p-4 rounded-sm flex items-center gap-4 ${safetyStatus === 'SAFE' ? 'neon-border-green' : 'neon-border-red'}`}>
+                    <StatusDot active color={safetyStatus === 'SAFE' ? 'green' : 'red'} />
+                    <div>
+                      <div className={`font-orbitron text-lg font-black ${safetyStatus === 'SAFE' ? 'text-neon-green' : 'text-neon-red'}`}>
+                        {safetyStatus === 'SAFE' ? '✓ AREA CLEAR' : '⚠ THREAT DETECTED'}
+                      </div>
+                      <div className="font-mono-jet text-xs text-slate-500 tracking-wide mt-0.5">
+                        {safetyStatus === 'SAFE'
+                          ? `SAFE: ${safePercentage?.toFixed(1) ?? '--'}%`
+                          : `UNSAFE ACTIVITY: ${unsafePercentage?.toFixed(1) ?? '--'}%`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Video */}
+                  <div className="glass-panel rounded-sm overflow-hidden">
+                    <div className="px-4 py-2 border-b border-neon-cyan/10 font-mono-jet text-xs text-slate-500 tracking-widest flex items-center gap-2">
+                      <StatusDot active color="cyan" /> PROCESSED OUTPUT
+                    </div>
+                    <div className="hud-frame m-3 bg-black rounded-sm overflow-hidden">
+                      <video ref={videoRef} key={processedVideo} autoPlay muted playsInline controls
+                        className="w-full h-auto" src={`${API_BASE}${processedVideo}`}
+                        onError={e => console.error('Video error:', e)} />
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap gap-3">
+                    <button onClick={handleReset} className="btn-cyber px-5 py-2 text-xs font-mono-jet tracking-widest"><span>NEW ANALYSIS</span></button>
+                    <a href={`${API_BASE}${processedVideo}`} download className="btn-cyber-solid px-5 py-2 text-xs font-mono-jet tracking-widest flex items-center gap-2">
+                      DOWNLOAD
+                    </a>
+                  </div>
                 </div>
               )}
-            </>
-          ) : uploadStatus === 'completed' && processedVideo ? (
-            <>
-              {/* Results Section */}
-              <div className="space-y-6">
-                {/* Safety Status with Prediction - Linear Layout */}
-                <div className="flex justify-center">
-                  <div className={`inline-flex items-center space-x-6 px-8 py-4 rounded-xl font-bold text-lg ${
-                    safetyStatus === 'SAFE' 
-                      ? 'bg-safe/20 border-2 border-safe text-safe' 
-                      : 'bg-unsafe/20 border-2 border-unsafe text-unsafe'
-                  }`}>
-                    {safetyStatus === 'SAFE' ? (
-                      <>
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>SAFE - No Threats Detected</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <span>UNSAFE - Threat Detected</span>
-                      </>
-                    )}
-                    
-                    {(unsafePercentage != null || safePercentage != null) && (
-                      <>
-                        <div className="w-px h-10 bg-current opacity-30"></div>
-                        <div className="flex flex-col items-center">
-                          <span className="text-xs opacity-70 font-normal">
-                            {safetyStatus === 'SAFE' ? 'Prediction (Safe)' : 'Prediction (Unsafe)'}
-                          </span>
-                          <span className="text-2xl font-bold">
-                            {safetyStatus === 'SAFE'
-                              ? (safePercentage != null ? `${safePercentage.toFixed(1)}%` : '—')
-                              : (unsafePercentage != null ? `${unsafePercentage.toFixed(1)}%` : '—')
-                            }
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Processed Video Player */}
-                <div className="glassmorphism p-6 rounded-xl">
-                  <h3 className="text-xl font-bold text-white mb-4">Processed Video Results</h3>
-                  <div className="relative rounded-lg overflow-hidden bg-slate-950">
-                    <video
-                      ref={videoRef}
-                      key={processedVideo}
-                      autoPlay
-                      muted
-                      playsInline
-                      controls
-                      className="w-full h-auto"
-                      src={`${API_BASE}${processedVideo}`}
-                      onError={(e) => {
-                        console.error('Video load error:', e);
-                        console.error('Video src:', `${API_BASE}${processedVideo}`);
-                      }}
-                      onLoadedData={() => console.log('Video loaded successfully')}
-                    >
-                      Your browser does not support the video tag.
-                    </video>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex flex-wrap gap-4 justify-center">
-                  <button
-                    onClick={handleReset}
-                    className="px-6 py-3 bg-slate-800 border border-accent/30 text-white font-semibold rounded-xl hover:bg-slate-700 hover:border-accent transition-all"
-                  >
-                    Analyze Another Video
-                  </button>
-                  <a
-                    href={`${API_BASE}${processedVideo}`}
-                    download
-                    className="px-6 py-3 bg-accent text-white font-semibold rounded-xl hover:bg-accent/80 transition-all flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    Download Result
-                  </a>
-                  <button
-                    onClick={() => {
-                      const shareData = {
-                        status: safetyStatus,
-                        filename: selectedFile?.name,
-                        videoUrl: `${API_BASE}${processedVideo}`,
-                        timestamp: new Date().toISOString()
-                      };
-                      const shareText = `VisionSafe Analysis Result\n\nStatus: ${shareData.status}\nFile: ${shareData.filename}\nAnalyzed: ${new Date(shareData.timestamp).toLocaleString()}\n\nPowered by VisionSafe AI`;
-                      
-                      if (navigator.share) {
-                        navigator.share({
-                          title: 'VisionSafe Analysis Report',
-                          text: shareText,
-                        }).catch(err => console.log('Share cancelled'));
-                      } else {
-                        navigator.clipboard.writeText(shareText);
-                        alert('Report copied to clipboard!');
-                      }
-                    }}
-                    className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all flex items-center gap-2"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                    </svg>
-                    Share Report
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : null}
-
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-            <div className="glassmorphism p-6 rounded-xl hover:scale-105 transition-all cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white">Total Analyses</h3>
-                <div className="w-3 h-3 bg-accent rounded-full animate-pulse"></div>
-              </div>
-              <p className="text-3xl font-bold text-gradient">
-                {quickStats ? quickStats.total_videos : 0}
-              </p>
-              <p className="text-sm text-gray-400 mt-2">Videos processed total</p>
             </div>
 
-            <div className="glassmorphism p-6 rounded-xl hover:scale-105 transition-all cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white">Safe Activities</h3>
-                <svg className="w-6 h-6 text-safe" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+            {/* AI Status sidebar */}
+            <div className="space-y-4">
+              <div className="glass-panel hud-frame rounded-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-neon-cyan/10">
+                  <span className="font-orbitron text-xs text-neon-cyan tracking-widest">SYSTEM STATUS</span>
+                </div>
+                <div className="p-4 space-y-3">
+                  {[
+                    { label: 'AI MODEL', value: 'ONLINE', color: 'green', active: true },
+                    { label: 'YOLO ENGINE', value: 'READY', color: 'green', active: true },
+                    { label: 'MEDIAPIPE', value: 'READY', color: 'green', active: true },
+                    { label: 'PROCESSING', value: isProcessing ? 'ACTIVE' : 'IDLE', color: isProcessing ? 'cyan' : 'green', active: isProcessing },
+                    { label: 'THREAT LEVEL', value: safetyStatus === 'UNSAFE' ? 'HIGH' : 'LOW', color: safetyStatus === 'UNSAFE' ? 'red' : 'green', active: true },
+                  ].map((row, i) => (
+                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
+                      <span className="font-mono-jet text-xs text-slate-500 tracking-widest">{row.label}</span>
+                      <div className="flex items-center gap-2">
+                        <StatusDot active={row.active} color={row.color} />
+                        <span className={`font-mono-jet text-xs font-bold ${
+                          row.color === 'green' ? 'text-neon-green' : row.color === 'red' ? 'text-neon-red' : 'text-neon-cyan'
+                        }`}>{row.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="text-3xl font-bold text-safe">
-                {quickStats ? quickStats.safe_videos : 0}
-              </p>
-              <p className="text-sm text-gray-400 mt-2">Safe videos detected</p>
-            </div>
 
-            <div className="glassmorphism p-6 rounded-xl hover:scale-105 transition-all cursor-pointer">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white">Avg Confidence</h3>
-                <svg className="w-6 h-6 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+              {/* Quick stats */}
+              <div className="glass-panel rounded-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-neon-cyan/10">
+                  <span className="font-orbitron text-xs text-neon-cyan tracking-widest">OPERATOR STATS</span>
+                </div>
+                <div className="p-4 space-y-3">
+                  {[
+                    { label: 'TOTAL ANALYSES', value: quickStats?.total_videos ?? 0, color: 'text-neon-cyan' },
+                    { label: 'SAFE FEEDS', value: quickStats?.safe_videos ?? 0, color: 'text-neon-green' },
+                    { label: 'AVG CONFIDENCE', value: quickStats ? `${(quickStats.average_confidence * 100).toFixed(0)}%` : '0%', color: 'text-neon-cyan' },
+                  ].map((s, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <span className="font-mono-jet text-xs text-slate-500 tracking-widest">{s.label}</span>
+                      <span className={`font-orbitron text-sm font-bold ${s.color}`}>{s.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="text-3xl font-bold text-accent">
-                {quickStats ? `${(quickStats.average_confidence * 100).toFixed(1)}%` : '0%'}
-              </p>
-              <p className="text-sm text-gray-400 mt-2">Detection confidence</p>
             </div>
           </div>
-        </div>
         )}
 
-        {/* History Tab */}
-        {activeTab === 'history' && (
-          <VideoHistory />
-        )}
-
-        {/* Stats Tab */}
-        {activeTab === 'stats' && (
-          <DashboardStats />
-        )}
+        {activeTab === 'history' && <VideoHistory />}
+        {activeTab === 'stats' && <DashboardStats />}
       </div>
     </section>
   );
