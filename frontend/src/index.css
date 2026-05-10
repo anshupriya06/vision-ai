@@ -4,40 +4,80 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── CSS variables for theming ── */
+:root {
+  --bg-base:       #020617;
+  --bg-card:       rgba(13, 27, 42, 0.85);
+  --bg-input:      rgba(2, 6, 23, 0.8);
+  --text-primary:  #f1f5f9;
+  --text-muted:    #94a3b8;
+  --text-subtle:   #475569;
+  --border-subtle: rgba(0, 240, 255, 0.15);
+  --scrollbar-bg:  #0f172a;
+  --scrollbar-fg:  #00f0ff44;
+  --grid-line:     rgba(0,240,255,0.04);
+  --gradient-bg:   #020617;
+}
+
+:root.light {
+  --bg-base:       #f0f4f8;
+  --bg-card:       rgba(255, 255, 255, 0.85);
+  --bg-input:      rgba(240, 244, 248, 0.95);
+  --text-primary:  #0f172a;
+  --text-muted:    #475569;
+  --text-subtle:   #94a3b8;
+  --border-subtle: rgba(0, 180, 210, 0.25);
+  --scrollbar-bg:  #e2e8f0;
+  --scrollbar-fg:  #00b4d8aa;
+  --grid-line:     rgba(0, 180, 210, 0.06);
+  --gradient-bg:   #f0f4f8;
+}
+
 @layer base {
   body {
-    background-color: #020617;
-    color: #f1f5f9;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
     font-family: 'Space Grotesk', system-ui, sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: #00f0ff #0f172a;
+    scrollbar-color: var(--scrollbar-fg) var(--scrollbar-bg);
   }
   *::-webkit-scrollbar       { width: 5px; }
-  *::-webkit-scrollbar-track { background: #0f172a; }
-  *::-webkit-scrollbar-thumb { background: #00f0ff44; border-radius: 4px; }
+  *::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+  *::-webkit-scrollbar-thumb { background: var(--scrollbar-fg); border-radius: 4px; }
   *::-webkit-scrollbar-thumb:hover { background: #00f0ff; }
 }
 
 @layer components {
   /* ── Glass panel ── */
   .glass-panel {
-    background: rgba(13, 27, 42, 0.85);
+    background: var(--bg-card);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 240, 255, 0.15);
+    border: 1px solid var(--border-subtle);
     box-shadow: 0 4px 32px rgba(0, 0, 0, 0.6);
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+
+  :root.light .glass-panel {
+    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.1);
   }
 
   /* keep legacy class working */
   .glassmorphism {
-    background: rgba(13, 27, 42, 0.85);
+    background: var(--bg-card);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 240, 255, 0.15);
+    border: 1px solid var(--border-subtle);
     box-shadow: 0 4px 32px rgba(0, 0, 0, 0.6);
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+
+  :root.light .glassmorphism {
+    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.1);
   }
 
   /* ── Neon borders ── */
@@ -53,8 +93,8 @@
   /* ── Cyber grid background ── */
   .cyber-grid {
     background-image:
-      linear-gradient(rgba(0,240,255,0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,240,255,0.04) 1px, transparent 1px);
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 40px 40px;
   }
 
@@ -149,15 +189,15 @@
 
   /* ── Cyber input ── */
   .cyber-input {
-    background: rgba(2, 6, 23, 0.8);
+    background: var(--bg-input);
     border: 1px solid rgba(0, 240, 255, 0.2);
-    color: #f1f5f9;
+    color: var(--text-primary);
     font-family: 'JetBrains Mono', monospace;
     border-radius: 4px;
     transition: all 0.2s ease;
     outline: none;
   }
-  .cyber-input::placeholder { color: rgba(148, 163, 184, 0.5); }
+  .cyber-input::placeholder { color: var(--text-subtle); }
   .cyber-input:focus {
     border-color: #00f0ff;
     box-shadow: 0 0 0 1px #00f0ff44, 0 0 12px #00f0ff22;
@@ -195,7 +235,119 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  .gradient-bg { background: #020617; }
+  .gradient-bg { background: var(--gradient-bg); }
+
+  /* ── Light mode text overrides ── */
+  :root.light .text-white   { color: #0f172a !important; }
+  :root.light .text-slate-300 { color: #334155 !important; }
+  :root.light .text-slate-400 { color: #475569 !important; }
+  :root.light .text-slate-500 { color: #64748b !important; }
+  :root.light .text-gray-400  { color: #64748b !important; }
+
+  /* ── Light mode background overrides ── */
+  :root.light .bg-cyber-black\/80 { background: rgba(240, 244, 248, 0.9) !important; }
+  :root.light .bg-slate-800 { background: #e2e8f0 !important; }
+  :root.light .bg-slate-700 { background: #cbd5e1 !important; }
+  :root.light .bg-slate-950 { background: #f1f5f9 !important; }
+  :root.light .bg-black\/50  { background: rgba(15, 23, 42, 0.4) !important; }
+
+  /* ── Light mode border overrides ── */
+  :root.light .border-neon-cyan\/10  { border-color: rgba(0, 180, 210, 0.15) !important; }
+  :root.light .border-neon-cyan\/20  { border-color: rgba(0, 180, 210, 0.25) !important; }
+  :root.light .border-accent\/30     { border-color: rgba(0, 180, 210, 0.3) !important; }
+  :root.light .border-slate-800      { border-color: #cbd5e1 !important; }
+
+  /* ── Light mode: animated bg blobs ── */
+  :root.light .fixed.inset-0.opacity-30 { opacity: 0.12 !important; }
+
+  /* ── Theme toggle button ── */
+  .theme-toggle {
+    background: transparent;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #00f0ff;
+  }
+  .theme-toggle:hover {
+    border-color: #00f0ff;
+    box-shadow: 0 0 10px #00f0ff44;
+  }
+  :root.light .theme-toggle {
+    border-color: rgba(0, 180, 210, 0.4);
+    color: #0284c7;
+  }
+
+  /* ── Onboarding tour ── */
+  .onboarding-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.85);
+    z-index: 9998;
+    backdrop-filter: blur(4px);
+  }
+  :root.light .onboarding-overlay {
+    background: rgba(15, 23, 42, 0.6);
+  }
+  .onboarding-card {
+    position: fixed;
+    z-index: 9999;
+    width: 340px;
+    background: #0d1b2a;
+    border: 1px solid #00f0ff55;
+    border-radius: 8px;
+    box-shadow: 0 0 40px #00f0ff22, 0 20px 60px rgba(0,0,0,0.6);
+    padding: 24px;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  :root.light .onboarding-card {
+    background: #ffffff;
+    border-color: rgba(0, 180, 210, 0.4);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  }
+
+  /* ── Confidence slider ── */
+  .confidence-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right, #00f0ff var(--val), #334155 var(--val));
+    outline: none;
+    cursor: pointer;
+    width: 100%;
+  }
+  .confidence-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #00f0ff;
+    border: 2px solid #020617;
+    box-shadow: 0 0 6px #00f0ff88;
+    cursor: pointer;
+  }
+  .confidence-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #00f0ff;
+    border: 2px solid #020617;
+    cursor: pointer;
+  }
+  :root.light .confidence-range {
+    background: linear-gradient(to right, #0284c7 var(--val), #cbd5e1 var(--val));
+  }
+  :root.light .confidence-range::-webkit-slider-thumb {
+    background: #0284c7;
+    border-color: #f0f4f8;
+    box-shadow: 0 0 6px #0284c788;
+  }
 }
 
 @layer utilities {

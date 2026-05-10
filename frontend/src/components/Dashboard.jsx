@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE from '../config/api';
-import VideoHistory from './VideoHistory';
-import DashboardStats from './DashboardStats';
+import OnboardingTour from './OnboardingTour';
+import LiveCamera from './LiveCamera';
+import SmartAlerts from './SmartAlerts';
 
 const StatusDot = ({ active, color = 'cyan' }) => {
   const colors = { cyan: 'bg-neon-cyan', green: 'bg-neon-green', red: 'bg-neon-red' };
@@ -12,29 +14,203 @@ const StatusDot = ({ active, color = 'cyan' }) => {
   );
 };
 
-const Dashboard = ({ setCurrentPage }) => {
+const SLOT_STATUS = { idle: 'idle', analyzing: 'analyzing', done: 'done', error: 'error' };
+
+const formatBytes = (b) => {
+  if (!b) return '';
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / 1024 / 1024).toFixed(1)} MB`;
+};
+
+/* ── Single upload slot ── */
+const UploadSlot = ({ slotIndex, currentUser, onComplete }) => {
+  const [status, setStatus]     = useState(SLOT_STATUS.idle);
+  const [file, setFile]         = useState(null);
+  const [result, setResult]     = useState(null);
+  const [error, setError]       = useState('');
+  const [isDragging, setIsDrag] = useState(false);
+  const inputRef                = useRef(null);
+
+  const analyze = async (f) => {
+    setFile(f); setResult(null); setError(''); setStatus(SLOT_STATUS.analyzing);
+    const formData = new FormData();
+    formData.append('file', f);
+    formData.append('user_email', currentUser?.email || 'anonymous');
+    try {
+      let token = null;
+      if (currentUser) { try { token = await currentUser.getIdToken(); } catch {} }
+      const headers = { 'Content-Type': 'multipart/form-data' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await axios.post(`${API_BASE}/upload-video`, formData, { headers, timeout: 600000 });
+      const r = {
+        videoUrl:      res.data.video_url,
+        safetyStatus:  res.data.status,
+        confidence:    res.data.confidence ?? null,
+        safePercent:   res.data.safe_percentage ?? null,
+        unsafePercent: res.data.unsafe_percentage ?? null,
+      };
+      setResult(r); setStatus(SLOT_STATUS.done);
+      window.dispatchEvent(new CustomEvent('vs:analysis-result', { detail: { status: r.safetyStatus } }));
+      onComplete?.();
+    } catch (err) {
+      let msg = 'Analysis failed.';
+      if (err.response?.status === 401) msg = 'Auth failed — please log in again.';
+      else if (err.response?.status === 400) msg = err.response?.data?.detail || 'Invalid file.';
+      else if (err.response?.status === 500) msg = err.response?.data?.detail || 'Server error.';
+      else if (err.code === 'ERR_NETWORK') msg = 'Cannot reach backend.';
+      else msg = err.response?.data?.detail || err.message || 'Upload failed.';
+      setError(msg); setStatus(SLOT_STATUS.error);
+    }
+  };
+
+  const handleFile = (f) => { if (f && f.type.startsWith('video/')) analyze(f); };
+  const reset = () => { setFile(null); setResult(null); setError(''); setStatus(SLOT_STATUS.idle); if (inputRef.current) inputRef.current.value = ''; };
+
+  const isBusy = status === SLOT_STATUS.analyzing;
+  const isDone = status === SLOT_STATUS.done;
+  const isErr  = status === SLOT_STATUS.error;
+
+  return (
+    <div className={`glass-panel rounded-sm overflow-hidden flex flex-col border transition-all ${
+      isDone && result?.safetyStatus === 'SAFE'   ? 'border-neon-green/40' :
+      isDone && result?.safetyStatus === 'UNSAFE' ? 'border-neon-red/40'   :
+      isErr                                        ? 'border-neon-red/30'   :
+      isBusy                                       ? 'border-neon-cyan/40'  :
+                                                     'border-neon-cyan/10 hover:border-neon-cyan/30'
+    }`}>
+      {/* Slot header */}
+      <div className="px-4 py-2.5 border-b border-neon-cyan/10 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <StatusDot
+            active={isBusy || isDone}
+            color={isDone ? (result?.safetyStatus === 'SAFE' ? 'green' : 'red') : 'cyan'}
+          />
+          <span className="font-mono-jet text-xs text-slate-500 tracking-widest">FEED {slotIndex + 1}</span>
+        </div>
+        {(isDone || isErr || isBusy) && (
+          <button onClick={reset} className="font-mono-jet text-xs text-slate-600 hover:text-neon-red transition-colors">✕ RESET</button>
+        )}
+      </div>
+
+      {/* Drop area or result */}
+      {status === SLOT_STATUS.idle && (
+        <div
+          onDragOver={e => { e.preventDefault(); setIsDrag(true); }}
+          onDragLeave={() => setIsDrag(false)}
+          onDrop={e => { e.preventDefault(); setIsDrag(false); handleFile(e.dataTransfer.files[0]); }}
+          onClick={() => inputRef.current?.click()}
+          className={`flex-1 flex flex-col items-center justify-center gap-3 p-6 cursor-pointer transition-all min-h-[180px] ${
+            isDragging ? 'bg-neon-cyan/5' : 'hover:bg-neon-cyan/3'
+          }`}
+        >
+          <input ref={inputRef} type="file" accept="video/*" className="hidden" onChange={e => handleFile(e.target.files[0])} />
+          <svg className={`w-8 h-8 transition-colors ${isDragging ? 'text-neon-cyan' : 'text-slate-700'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          <div className="text-center">
+            <p className="font-orbitron text-xs text-slate-500 tracking-widest mb-0.5">
+              {isDragging ? 'DROP TO ANALYZE' : 'DROP VIDEO'}
+            </p>
+            <p className="font-mono-jet text-xs text-slate-700">or click to browse</p>
+          </div>
+        </div>
+      )}
+
+      {status === SLOT_STATUS.analyzing && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-6 min-h-[180px]">
+          <svg className="w-8 h-8 text-neon-cyan animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <div className="text-center">
+            <p className="font-orbitron text-xs text-neon-cyan tracking-widest mb-1 animate-pulse">ANALYZING</p>
+            <p className="font-mono-jet text-xs text-slate-500 truncate max-w-[160px]">{file?.name}</p>
+          </div>
+          <div className="flex flex-col gap-1.5 w-full max-w-[180px]">
+            {['YOLO DETECTION', 'POSE ESTIMATION', 'CLASSIFICATION'].map((step, i) => (
+              <div key={step} className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-neon-cyan animate-pulse" style={{ animationDelay: `${i * 0.3}s` }} />
+                <span className="font-mono-jet text-xs text-slate-600 tracking-wide">{step}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {status === SLOT_STATUS.done && result && (
+        <div className="flex-1 flex flex-col p-4 gap-3 min-h-[180px]">
+          {/* Status banner */}
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-sm ${
+            result.safetyStatus === 'SAFE' ? 'bg-neon-green/10 border border-neon-green/30' : 'bg-neon-red/10 border border-neon-red/30'
+          }`}>
+            <span className={`font-orbitron text-xs font-black tracking-widest ${result.safetyStatus === 'SAFE' ? 'text-neon-green' : 'text-neon-red'}`}>
+              {result.safetyStatus === 'SAFE' ? '✓ SAFE' : '⚠ UNSAFE'}
+            </span>
+            {result.confidence != null && (
+              <span className="font-mono-jet text-xs text-slate-500 ml-auto">
+                {(result.confidence * 100).toFixed(1)}%
+              </span>
+            )}
+          </div>
+
+          {/* Filename */}
+          <p className="font-mono-jet text-xs text-slate-400 truncate">{file?.name}</p>
+
+          {/* Confidence bar */}
+          {result.confidence != null && (
+            <div className="w-full bg-slate-800 rounded-full h-1.5">
+              <div
+                className={`h-1.5 rounded-full ${result.safetyStatus === 'SAFE' ? 'bg-neon-green' : 'bg-neon-red'}`}
+                style={{ width: `${result.confidence * 100}%` }}
+              />
+            </div>
+          )}
+
+          {/* Download */}
+          {result.videoUrl && (
+            <a
+              href={`${API_BASE}${result.videoUrl}`}
+              download
+              className="mt-auto font-mono-jet text-xs text-neon-cyan hover:underline flex items-center gap-1"
+            >
+              ↓ download processed video
+            </a>
+          )}
+        </div>
+      )}
+
+      {status === SLOT_STATUS.error && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 min-h-[180px]">
+          <svg className="w-8 h-8 text-neon-red" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <p className="font-mono-jet text-xs text-neon-red text-center leading-relaxed">{error}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Dashboard = () => {
   const { currentUser } = useAuth();
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState('idle');
-  const [processedVideo, setProcessedVideo] = useState(null);
-  const [safetyStatus, setSafetyStatus] = useState(null);
-  const [unsafePercentage, setUnsafePercentage] = useState(null);
-  const [safePercentage, setSafePercentage] = useState(null);
-  const [modelConfidence, setModelConfidence] = useState(null);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
+  const navigate = useNavigate();
+
   const [activeTab, setActiveTab] = useState('upload');
   const [quickStats, setQuickStats] = useState(null);
-  const fileInputRef = useRef(null);
-  const videoRef = useRef(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
 
   useEffect(() => { if (currentUser?.email) fetchQuickStats(); }, [currentUser]);
+
   useEffect(() => {
-    if (processedVideo && videoRef.current) {
-      videoRef.current.load();
-      videoRef.current.play().catch(() => {});
-    }
-  }, [processedVideo]);
+    if (!currentUser?.email) return;
+    const key = `vs-onboarded-${currentUser.email}`;
+    if (!localStorage.getItem(key)) setShowOnboarding(true);
+  }, [currentUser]);
+
+  const handleOnboardingComplete = () => {
+    if (currentUser?.email) localStorage.setItem(`vs-onboarded-${currentUser.email}`, '1');
+    setShowOnboarding(false);
+  };
 
   const fetchQuickStats = async () => {
     try {
@@ -43,64 +219,16 @@ const Dashboard = ({ setCurrentPage }) => {
     } catch { setQuickStats({ total_videos: 0, safe_videos: 0, average_confidence: 0 }); }
   };
 
-  const handleFileSelect = (file) => {
-    if (file && file.type.startsWith('video/')) {
-      setSelectedFile(file); setErrorMessage(''); setProcessedVideo(null); setSafetyStatus(null);
-    } else { setErrorMessage('Please select a valid video file'); }
-  };
-
-  const handleDrop = (e) => { e.preventDefault(); setIsDragging(false); handleFileSelect(e.dataTransfer.files[0]); };
-
-  const handleUpload = async () => {
-    if (!selectedFile) { setErrorMessage('Please select a video file first'); return; }
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('user_email', currentUser?.email || 'anonymous');
-    try {
-      setUploadStatus('uploading'); setErrorMessage('');
-      let token = null;
-      if (currentUser) { try { token = await currentUser.getIdToken(); } catch {} }
-      const headers = { 'Content-Type': 'multipart/form-data' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const response = await axios.post(`${API_BASE}/upload-video`, formData, { headers, timeout: 600000 });
-      setUploadStatus('processing');
-      await new Promise(r => setTimeout(r, 1000));
-      setProcessedVideo(response.data.video_url);
-      setSafetyStatus(response.data.status);
-      setModelConfidence(response.data.confidence ?? null);
-      const unsafePct = response.data.unsafe_percentage ?? (response.data.confidence != null ? (1 - response.data.confidence) * 100 : null);
-      const safePct = response.data.safe_percentage ?? (response.data.confidence != null ? response.data.confidence * 100 : null);
-      setUnsafePercentage(unsafePct != null ? Number(unsafePct) : null);
-      setSafePercentage(safePct != null ? Number(safePct) : null);
-      setUploadStatus('completed');
-      if (currentUser?.email) fetchQuickStats();
-    } catch (error) {
-      setUploadStatus('error');
-      if (error.response?.status === 401) setErrorMessage('Authentication failed. Please log in again.');
-      else if (error.response?.status === 400) setErrorMessage(error.response?.data?.detail || 'Invalid file format.');
-      else if (error.response?.status === 500) setErrorMessage(error.response?.data?.detail || 'Server error. Please try again.');
-      else if (error.code === 'ERR_NETWORK') setErrorMessage(`Cannot reach backend at ${API_BASE}`);
-      else setErrorMessage(error.response?.data?.detail || error.message || 'Upload failed.');
-    }
-  };
-
-  const handleReset = () => {
-    setSelectedFile(null); setUploadStatus('idle'); setProcessedVideo(null);
-    setSafetyStatus(null); setUnsafePercentage(null); setSafePercentage(null);
-    setModelConfidence(null); setErrorMessage('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   const tabs = [
-    { id: 'upload', label: 'UPLOAD FEED' },
-    { id: 'history', label: 'HISTORY' },
-    { id: 'stats', label: 'STATISTICS' },
+    { id: 'upload',  label: 'BATCH UPLOAD' },
+    { id: 'live',    label: 'LIVE CAMERA' },
+    { id: 'history', label: 'HISTORY',    navigate: '/history' },
+    { id: 'stats',   label: 'STATISTICS', navigate: '/history' },
   ];
-
-  const isProcessing = uploadStatus === 'uploading' || uploadStatus === 'processing';
 
   return (
     <section className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 min-h-screen cyber-grid">
+      {showOnboarding && <OnboardingTour onComplete={handleOnboardingComplete} />}
       <div className="max-w-7xl mx-auto">
 
         {/* Header */}
@@ -123,145 +251,47 @@ const Dashboard = ({ setCurrentPage }) => {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 border border-neon-cyan/10 rounded-sm p-1 glass-panel w-fit">
+        <div className="flex flex-wrap gap-1 mb-6 border border-neon-cyan/10 rounded-sm p-1 glass-panel w-fit">
           {tabs.map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => tab.navigate ? navigate(tab.navigate) : setActiveTab(tab.id)}
               className={`px-5 py-2 font-mono-jet text-xs tracking-widest rounded-sm transition-all ${
-                activeTab === tab.id
+                activeTab === tab.id && !tab.navigate
                   ? 'bg-neon-cyan text-cyber-black font-bold'
                   : 'text-slate-500 hover:text-neon-cyan'
               }`}
             >
               {tab.label}
+              {tab.id === 'live' && <span className="ml-2 text-neon-red text-xs">●</span>}
+              {tab.navigate && <span className="ml-1 text-slate-600 text-xs">↗</span>}
             </button>
           ))}
         </div>
 
-        {/* Upload Tab */}
+        {/* ── UPLOAD TAB — 4 independent slots ── */}
         {activeTab === 'upload' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-            {/* Main upload area */}
-            <div className="lg:col-span-2 space-y-6">
-
-              {/* Processing status */}
-              {isProcessing && (
-                <div className="glass-panel border border-neon-cyan/30 p-4 rounded-sm">
-                  <div className="font-mono-jet text-xs text-neon-cyan tracking-widest mb-3 flex items-center gap-2">
-                    <StatusDot active color="cyan" /> AI ANALYSIS IN PROGRESS
-                  </div>
-                  <div className="space-y-2">
-                    {['UPLOADING VIDEO FEED', 'RUNNING YOLO DETECTION', 'MEDIAPIPE POSE ESTIMATION', 'CLASSIFYING ACTIVITIES'].map((step, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className={`w-1.5 h-1.5 rounded-full ${i <= (uploadStatus === 'uploading' ? 0 : 2) ? 'bg-neon-cyan animate-pulse' : 'bg-slate-700'}`} />
-                        <span className={`font-mono-jet text-xs tracking-wider ${i <= (uploadStatus === 'uploading' ? 0 : 2) ? 'text-slate-300' : 'text-slate-600'}`}>{step}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Error */}
-              {errorMessage && (
-                <div className="glass-panel neon-border-red p-4 rounded-sm flex items-start gap-3">
-                  <span className="text-neon-red font-mono-jet text-lg leading-none">!</span>
-                  <p className="font-mono-jet text-xs text-neon-red tracking-wide">{errorMessage}</p>
-                </div>
-              )}
-
-              {/* Upload zone or results */}
-              {(uploadStatus === 'idle' || uploadStatus === 'error') && (
-                <div className="glass-panel rounded-sm overflow-hidden">
-                  <div className="px-5 py-3 border-b border-neon-cyan/10 flex items-center gap-2">
-                    <StatusDot active={!!selectedFile} color="cyan" />
-                    <span className="font-mono-jet text-xs tracking-widest text-slate-400">VIDEO FEED INPUT</span>
-                  </div>
-
-                  <div
-                    onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`m-4 border-2 border-dashed rounded-sm p-12 text-center cursor-pointer transition-all ${
-                      isDragging ? 'border-neon-cyan bg-neon-cyan/5 shadow-neon-cyan' : 'border-slate-700 hover:border-neon-cyan/50'
-                    }`}
-                  >
-                    <input ref={fileInputRef} type="file" accept="video/*" onChange={e => handleFileSelect(e.target.files[0])} className="hidden" />
-                    <div className="flex flex-col items-center gap-4">
-                      <svg className={`w-12 h-12 ${isDragging ? 'text-neon-cyan' : 'text-slate-600'} transition-colors`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      <div>
-                        <p className="font-orbitron text-sm text-white mb-1">{isDragging ? 'RELEASE TO UPLOAD' : 'DROP VIDEO FEED'}</p>
-                        <p className="font-mono-jet text-xs text-slate-500 tracking-wide">or click to browse files</p>
-                      </div>
-                      {selectedFile && (
-                        <div className="flex items-center gap-2 px-4 py-2 border border-neon-green/30 bg-neon-green/5 rounded-sm">
-                          <StatusDot active color="green" />
-                          <span className="font-mono-jet text-xs text-neon-green">{selectedFile.name}</span>
-                          <button onClick={e => { e.stopPropagation(); handleReset(); }} className="text-slate-500 hover:text-neon-red transition-colors ml-2">✕</button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {selectedFile && (
-                    <div className="px-4 pb-4 flex justify-center">
-                      <button onClick={handleUpload} className="btn-cyber-solid px-8 py-3 font-orbitron text-sm tracking-widest flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                        ANALYZE FEED
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Results */}
-              {uploadStatus === 'completed' && processedVideo && (
-                <div className="space-y-4">
-                  {/* Status badge */}
-                  <div className={`glass-panel p-4 rounded-sm flex items-center gap-4 ${safetyStatus === 'SAFE' ? 'neon-border-green' : 'neon-border-red'}`}>
-                    <StatusDot active color={safetyStatus === 'SAFE' ? 'green' : 'red'} />
-                    <div>
-                      <div className={`font-orbitron text-lg font-black ${safetyStatus === 'SAFE' ? 'text-neon-green' : 'text-neon-red'}`}>
-                        {safetyStatus === 'SAFE' ? '✓ AREA CLEAR' : '⚠ THREAT DETECTED'}
-                      </div>
-                      <div className="font-mono-jet text-xs text-slate-500 tracking-wide mt-0.5">
-                        {safetyStatus === 'SAFE'
-                          ? `SAFE: ${safePercentage?.toFixed(1) ?? '--'}%`
-                          : `UNSAFE ACTIVITY: ${unsafePercentage?.toFixed(1) ?? '--'}%`}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Video */}
-                  <div className="glass-panel rounded-sm overflow-hidden">
-                    <div className="px-4 py-2 border-b border-neon-cyan/10 font-mono-jet text-xs text-slate-500 tracking-widest flex items-center gap-2">
-                      <StatusDot active color="cyan" /> PROCESSED OUTPUT
-                    </div>
-                    <div className="hud-frame m-3 bg-black rounded-sm overflow-hidden">
-                      <video ref={videoRef} key={processedVideo} autoPlay muted playsInline controls
-                        className="w-full h-auto" src={`${API_BASE}${processedVideo}`}
-                        onError={e => console.error('Video error:', e)} />
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex flex-wrap gap-3">
-                    <button onClick={handleReset} className="btn-cyber px-5 py-2 text-xs font-mono-jet tracking-widest"><span>NEW ANALYSIS</span></button>
-                    <a href={`${API_BASE}${processedVideo}`} download className="btn-cyber-solid px-5 py-2 text-xs font-mono-jet tracking-widest flex items-center gap-2">
-                      DOWNLOAD
-                    </a>
-                  </div>
-                </div>
-              )}
+            {/* 4 upload slots — 2×2 grid */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="flex items-center gap-2 mb-1">
+                <StatusDot active color="cyan" />
+                <span className="font-mono-jet text-xs text-slate-500 tracking-widest">4 INDEPENDENT FEED SLOTS — DROP OR CLICK TO ANALYZE</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {[0, 1, 2, 3].map(i => (
+                  <UploadSlot
+                    key={i}
+                    slotIndex={i}
+                    currentUser={currentUser}
+                    onComplete={fetchQuickStats}
+                  />
+                ))}
+              </div>
             </div>
 
-            {/* AI Status sidebar */}
+            {/* Sidebar */}
             <div className="space-y-4">
               <div className="glass-panel hud-frame rounded-sm overflow-hidden">
                 <div className="px-4 py-3 border-b border-neon-cyan/10">
@@ -269,26 +299,22 @@ const Dashboard = ({ setCurrentPage }) => {
                 </div>
                 <div className="p-4 space-y-3">
                   {[
-                    { label: 'AI MODEL', value: 'ONLINE', color: 'green', active: true },
-                    { label: 'YOLO ENGINE', value: 'READY', color: 'green', active: true },
-                    { label: 'MEDIAPIPE', value: 'READY', color: 'green', active: true },
-                    { label: 'PROCESSING', value: isProcessing ? 'ACTIVE' : 'IDLE', color: isProcessing ? 'cyan' : 'green', active: isProcessing },
-                    { label: 'THREAT LEVEL', value: safetyStatus === 'UNSAFE' ? 'HIGH' : 'LOW', color: safetyStatus === 'UNSAFE' ? 'red' : 'green', active: true },
+                    { label: 'AI MODEL',    value: 'ONLINE', color: 'green', active: true },
+                    { label: 'YOLO ENGINE', value: 'READY',  color: 'green', active: true },
+                    { label: 'MEDIAPIPE',   value: 'READY',  color: 'green', active: true },
+                    { label: 'SLOTS',       value: '4 ACTIVE', color: 'cyan', active: true },
                   ].map((row, i) => (
                     <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
                       <span className="font-mono-jet text-xs text-slate-500 tracking-widest">{row.label}</span>
                       <div className="flex items-center gap-2">
                         <StatusDot active={row.active} color={row.color} />
-                        <span className={`font-mono-jet text-xs font-bold ${
-                          row.color === 'green' ? 'text-neon-green' : row.color === 'red' ? 'text-neon-red' : 'text-neon-cyan'
-                        }`}>{row.value}</span>
+                        <span className={`font-mono-jet text-xs font-bold ${row.color === 'green' ? 'text-neon-green' : 'text-neon-cyan'}`}>{row.value}</span>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Quick stats */}
               <div className="glass-panel rounded-sm overflow-hidden">
                 <div className="px-4 py-3 border-b border-neon-cyan/10">
                   <span className="font-orbitron text-xs text-neon-cyan tracking-widest">OPERATOR STATS</span>
@@ -296,7 +322,7 @@ const Dashboard = ({ setCurrentPage }) => {
                 <div className="p-4 space-y-3">
                   {[
                     { label: 'TOTAL ANALYSES', value: quickStats?.total_videos ?? 0, color: 'text-neon-cyan' },
-                    { label: 'SAFE FEEDS', value: quickStats?.safe_videos ?? 0, color: 'text-neon-green' },
+                    { label: 'SAFE FEEDS',     value: quickStats?.safe_videos ?? 0,  color: 'text-neon-green' },
                     { label: 'AVG CONFIDENCE', value: quickStats ? `${(quickStats.average_confidence * 100).toFixed(0)}%` : '0%', color: 'text-neon-cyan' },
                   ].map((s, i) => (
                     <div key={i} className="flex items-center justify-between">
@@ -306,12 +332,28 @@ const Dashboard = ({ setCurrentPage }) => {
                   ))}
                 </div>
               </div>
+
+              <SmartAlerts onAlertTriggered={() => setAlertCount(c => c + 1)} />
             </div>
           </div>
         )}
 
-        {activeTab === 'history' && <VideoHistory />}
-        {activeTab === 'stats' && <DashboardStats />}
+        {/* ── LIVE CAMERA TAB ── */}
+        {activeTab === 'live' && (
+          <div className="space-y-4">
+            <div className="glass-panel p-4 rounded-sm border border-neon-red/20 flex items-start gap-3">
+              <span className="text-neon-red text-lg">📡</span>
+              <div>
+                <p className="font-orbitron text-xs text-neon-red tracking-widest mb-1">LIVE STREAM MODE</p>
+                <p className="font-mono-jet text-xs text-slate-400 leading-relaxed">
+                  Live camera captures a JPEG snapshot every N seconds and runs it through the full AI pipeline. Requires camera permission and an active backend connection.
+                </p>
+              </div>
+            </div>
+            <LiveCamera />
+          </div>
+        )}
+
       </div>
     </section>
   );

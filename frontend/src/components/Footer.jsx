@@ -24,8 +24,8 @@ const Footer = () => {
   };
 
   const links = {
-    SYSTEM: [{ label: 'Dashboard', path: '/' }, { label: 'History', path: '/history' }, { label: 'About', path: '/about' }],
-    SUPPORT: [{ label: 'Contact', path: '/contact' }, { label: 'Documentation', path: '/docs' }, { label: 'API', path: '/api' }],
+    SYSTEM: [{ label: 'Dashboard', path: '/' }, { label: 'History', path: '/history' }, { label: 'Pricing', path: '/pricing' }, { label: 'About', path: '/about' }],
+    SUPPORT: [{ label: 'Contact', path: '/contact' }, { label: 'Documentation', path: '/documentation' }, { label: 'API', path: '/api' }],
     LEGAL: [{ label: 'Privacy', path: '/privacy' }, { label: 'Terms', path: '/terms' }, { label: 'Security', path: '/security' }],
   };
 

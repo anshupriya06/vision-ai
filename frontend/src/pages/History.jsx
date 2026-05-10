@@ -11,6 +11,7 @@ const History = () => {
   const [filter, setFilter] = useState('all');
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [minConfidence, setMinConfidence] = useState(0);
 
   useEffect(() => {
     fetchVideos();
@@ -125,7 +126,8 @@ const History = () => {
   const filteredVideos = videos.filter(video => {
     const matchesFilter = filter === 'all' || video.overall_status === filter;
     const matchesSearch = video.filename.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
+    const matchesConfidence = (video.confidence * 100) >= minConfidence;
+    return matchesFilter && matchesSearch && matchesConfidence;
   });
 
   const safeCount = videos.filter(v => v.overall_status === 'SAFE').length;
@@ -196,7 +198,7 @@ const History = () => {
         </div>
 
         {/* Search and Filter */}
-        <div className="glassmorphism p-6 rounded-xl mb-8">
+        <div className="glassmorphism p-6 rounded-xl mb-8 space-y-5">
           <div className="grid md:grid-cols-2 gap-4">
             {/* Search */}
             <div>
@@ -209,7 +211,7 @@ const History = () => {
               />
             </div>
 
-            {/* Filter */}
+            {/* Status filter */}
             <div className="flex gap-2">
               <button
                 onClick={() => setFilter('all')}
@@ -242,6 +244,49 @@ const History = () => {
                 Unsafe
               </button>
             </div>
+          </div>
+
+          {/* Confidence filter */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="font-mono-jet text-xs text-slate-400 tracking-widest">
+                MIN CONFIDENCE
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="font-orbitron text-sm font-bold text-neon-cyan">
+                  {minConfidence}%
+                </span>
+                {minConfidence > 0 && (
+                  <button
+                    onClick={() => setMinConfidence(0)}
+                    className="font-mono-jet text-xs text-slate-500 hover:text-neon-red transition-colors"
+                    title="Reset filter"
+                  >
+                    ✕ reset
+                  </button>
+                )}
+              </div>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={minConfidence}
+              onChange={(e) => setMinConfidence(Number(e.target.value))}
+              className="confidence-range"
+              style={{ '--val': `${minConfidence}%` }}
+            />
+            <div className="flex justify-between mt-1">
+              <span className="font-mono-jet text-xs text-slate-600">0%</span>
+              <span className="font-mono-jet text-xs text-slate-600">50%</span>
+              <span className="font-mono-jet text-xs text-slate-600">100%</span>
+            </div>
+            {minConfidence > 0 && (
+              <p className="font-mono-jet text-xs text-slate-500 mt-1">
+                Showing {filteredVideos.length} of {videos.length} videos with confidence ≥ {minConfidence}%
+              </p>
+            )}
           </div>
         </div>
 

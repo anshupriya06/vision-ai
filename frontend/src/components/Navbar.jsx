@@ -1,24 +1,46 @@
 import React, { useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useTheme } from '../contexts/ThemeContext';
 import LoginModal from './LoginModal';
+
+const ADMIN_EMAILS = ['anshu@stellatone.com', 'admin@visionsafe.io'];
+
+const SunIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+      d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+  </svg>
+);
+
+const MoonIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+      d="M21 12.79A9 9 0 1111.21 3a7 7 0 109.79 9.79z" />
+  </svg>
+);
 
 const Navbar = ({ currentUser: propUser }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const { currentUser: authUser, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const currentUser = propUser || authUser;
+  const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
   const navigate = useNavigate();
   const location = useLocation();
 
   const navLinks = currentUser ? [
-    { name: 'HOME', path: '/' },
+    { name: 'HOME',    path: '/' },
     { name: 'HISTORY', path: '/history' },
-    { name: 'ABOUT', path: '/about' },
+    { name: 'PRICING', path: '/pricing' },
+    { name: 'ABOUT',   path: '/about' },
     { name: 'CONTACT', path: '/contact' },
+    ...(isAdmin ? [{ name: 'ADMIN', path: '/admin', highlight: true }] : []),
   ] : [
-    { name: 'HOME', path: '/' },
-    { name: 'ABOUT', path: '/about' },
+    { name: 'HOME',    path: '/' },
+    { name: 'PRICING', path: '/pricing' },
+    { name: 'ABOUT',   path: '/about' },
     { name: 'CONTACT', path: '/contact' },
   ];
 
@@ -55,20 +77,31 @@ const Navbar = ({ currentUser: propUser }) => {
                   to={link.path}
                   className={({ isActive }) =>
                     `font-mono-jet text-xs tracking-widest transition-all relative group pb-1 ${
-                      isActive ? 'text-neon-cyan' : 'text-slate-400 hover:text-neon-cyan'
+                      link.highlight
+                        ? isActive ? 'text-neon-red' : 'text-neon-red/70 hover:text-neon-red'
+                        : isActive ? 'text-neon-cyan' : 'text-slate-400 hover:text-neon-cyan'
                     }`
                   }
                 >
                   {link.name}
-                  <span className={`absolute bottom-0 left-0 h-px bg-neon-cyan transition-all shadow-neon-cyan ${
+                  <span className={`absolute bottom-0 left-0 h-px transition-all ${link.highlight ? 'bg-neon-red shadow-neon-red' : 'bg-neon-cyan shadow-neon-cyan'} ${
                     location.pathname === link.path ? 'w-full' : 'w-0 group-hover:w-full'
                   }`} />
                 </NavLink>
               ))}
             </div>
 
-            {/* Auth */}
+            {/* Auth + Theme toggle */}
             <div className="hidden md:flex items-center space-x-3">
+              {/* Theme toggle */}
+              <button
+                onClick={toggleTheme}
+                className="theme-toggle"
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+              </button>
+
               {currentUser ? (
                 <>
                   <button
@@ -102,15 +135,20 @@ const Navbar = ({ currentUser: propUser }) => {
               )}
             </div>
 
-            {/* Mobile toggle */}
-            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden text-slate-400 hover:text-neon-cyan transition-colors">
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {isMenuOpen
-                  ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                }
-              </svg>
-            </button>
+            {/* Mobile: theme toggle + hamburger */}
+            <div className="md:hidden flex items-center gap-2">
+              <button onClick={toggleTheme} className="theme-toggle">
+                {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+              </button>
+              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-slate-400 hover:text-neon-cyan transition-colors">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {isMenuOpen
+                    ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  }
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Mobile menu */}
