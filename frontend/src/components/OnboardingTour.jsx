@@ -116,12 +116,12 @@ const OnboardingTour = ({ onComplete }) => {
         <div className="text-4xl mb-4">{current.icon}</div>
 
         {/* Title */}
-        <h2 className="font-orbitron text-base font-bold text-white mb-3 leading-snug">
+        <h2 className="font-sora text-base font-bold text-white mb-3 leading-snug">
           {current.title}
         </h2>
 
         {/* Description */}
-        <p className="font-space text-sm text-slate-400 leading-relaxed mb-6">
+        <p className="font-inter text-sm text-slate-400 leading-relaxed mb-6">
           {current.description}
         </p>
 

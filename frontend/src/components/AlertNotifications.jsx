@@ -54,9 +54,9 @@ const AlertNotifications = () => {
         return (
           <div key={alert.id} className={`glass-panel ${cfg.border} rounded-sm p-3 animate-slide-in ${alert.type === 'danger' ? 'animate-shake' : ''}`}>
             <div className="flex items-start gap-3">
-              <span className={`font-orbitron text-base ${cfg.textColor} mt-0.5`}>{cfg.icon}</span>
+              <span className={`font-sora text-base ${cfg.textColor} mt-0.5`}>{cfg.icon}</span>
               <div className="flex-1 min-w-0">
-                <div className={`font-orbitron text-xs font-bold tracking-widest ${cfg.textColor}`}>{cfg.label}</div>
+                <div className={`font-sora text-xs font-bold tracking-widest ${cfg.textColor}`}>{cfg.label}</div>
                 <p className="font-mono-jet text-xs text-slate-300 mt-0.5 truncate">{alert.message}</p>
                 <p className="font-mono-jet text-xs text-slate-600 mt-1">{alert.timestamp}</p>
                 {alert.data?.status && (

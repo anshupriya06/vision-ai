@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -20,25 +20,43 @@
 }
 
 :root.light {
-  --bg-base:       #f0f4f8;
-  --bg-card:       rgba(255, 255, 255, 0.85);
-  --bg-input:      rgba(240, 244, 248, 0.95);
+  --bg-base:       #f1f5f9;
+  --bg-card:       rgba(255, 255, 255, 0.92);
+  --bg-input:      rgba(248, 250, 252, 0.98);
   --text-primary:  #0f172a;
   --text-muted:    #475569;
   --text-subtle:   #94a3b8;
-  --border-subtle: rgba(0, 180, 210, 0.25);
+  --border-subtle: rgba(99, 102, 241, 0.18);
   --scrollbar-bg:  #e2e8f0;
-  --scrollbar-fg:  #00b4d8aa;
-  --grid-line:     rgba(0, 180, 210, 0.06);
-  --gradient-bg:   #f0f4f8;
+  --scrollbar-fg:  #6366f180;
+  --grid-line:     rgba(99, 102, 241, 0.05);
+  --gradient-bg:   #f1f5f9;
+  /* light accent palette */
+  --accent-primary: #4f46e5;
+  --accent-success: #059669;
+  --accent-danger:  #dc2626;
 }
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     background-color: var(--bg-base);
     color: var(--text-primary);
-    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
     transition: background-color 0.3s ease, color 0.3s ease;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  img, video {
+    max-width: 100%;
+    height: auto;
   }
 
   * {
@@ -63,7 +81,8 @@
   }
 
   :root.light .glass-panel {
-    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06);
+    border-color: rgba(226, 232, 240, 0.8);
   }
 
   /* keep legacy class working */
@@ -77,7 +96,8 @@
   }
 
   :root.light .glassmorphism {
-    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.06);
+    border-color: rgba(226, 232, 240, 0.8);
   }
 
   /* ── Neon borders ── */
@@ -85,10 +105,20 @@
   .neon-border-green { border: 1px solid #00ff9f;  box-shadow: 0 0 8px #00ff9f55, inset 0 0 8px #00ff9f11; }
   .neon-border-red   { border: 1px solid #ff3b3b;  box-shadow: 0 0 8px #ff3b3b55, inset 0 0 8px #ff3b3b11; }
 
+  /* light mode: replace neon borders with clean professional borders */
+  :root.light .neon-border       { border-color: #6366f1; box-shadow: 0 0 0 1px rgba(99,102,241,0.15); }
+  :root.light .neon-border-green { border-color: #059669; box-shadow: 0 0 0 1px rgba(5,150,105,0.15); }
+  :root.light .neon-border-red   { border-color: #dc2626; box-shadow: 0 0 0 1px rgba(220,38,38,0.15); }
+
   /* ── Text glow ── */
   .text-neon       { color: #00f0ff; text-shadow: 0 0 8px #00f0ff88; }
   .text-neon-green { color: #00ff9f; text-shadow: 0 0 8px #00ff9f88; }
   .text-neon-red   { color: #ff3b3b; text-shadow: 0 0 8px #ff3b3b88; }
+
+  /* light mode: no glow, professional colors */
+  :root.light .text-neon       { color: #4f46e5; text-shadow: none; }
+  :root.light .text-neon-green { color: #059669; text-shadow: none; }
+  :root.light .text-neon-red   { color: #dc2626; text-shadow: none; }
 
   /* ── Cyber grid background ── */
   .cyber-grid {
@@ -131,13 +161,21 @@
     bottom: -1px; right: -1px;
     border-width: 0 2px 2px 0;
   }
+  /* light mode hud-frame: indigo corners */
+  :root.light .hud-frame {
+    border-color: rgba(99, 102, 241, 0.2);
+  }
+  :root.light .hud-frame::before,
+  :root.light .hud-frame::after {
+    border-color: #6366f1;
+  }
 
   /* ── Cyber button ── */
   .btn-cyber {
     background: transparent;
     border: 1px solid #00f0ff;
     color: #00f0ff;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: 'Inter', sans-serif;
     font-weight: 600;
     letter-spacing: 0.05em;
     border-radius: 6px;
@@ -160,11 +198,22 @@
   .btn-cyber:hover::before { opacity: 1; }
   .btn-cyber span { position: relative; z-index: 1; }
 
+  /* light mode btn-cyber: indigo */
+  :root.light .btn-cyber {
+    border-color: #6366f1;
+    color: #4f46e5;
+  }
+  :root.light .btn-cyber::before { background: #6366f1; }
+  :root.light .btn-cyber:hover {
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(99,102,241,0.3);
+  }
+
   .btn-cyber-solid {
     background: #00f0ff;
     border: 1px solid #00f0ff;
     color: #020617;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: 'Inter', sans-serif;
     font-weight: 700;
     border-radius: 6px;
     transition: all 0.2s ease;
@@ -172,6 +221,17 @@
   .btn-cyber-solid:hover {
     box-shadow: 0 0 20px #00f0ffaa;
     background: #33f4ff;
+  }
+
+  /* light mode btn-cyber-solid: solid indigo */
+  :root.light .btn-cyber-solid {
+    background: #4f46e5;
+    border-color: #4f46e5;
+    color: #ffffff;
+  }
+  :root.light .btn-cyber-solid:hover {
+    background: #4338ca;
+    box-shadow: 0 2px 16px rgba(79,70,229,0.35);
   }
 
   .btn-danger {
@@ -185,6 +245,16 @@
   .btn-danger:hover {
     background: #ff3b3b22;
     box-shadow: 0 0 12px #ff3b3b66;
+  }
+
+  /* light mode btn-danger: cleaner red */
+  :root.light .btn-danger {
+    border-color: #dc2626;
+    color: #dc2626;
+  }
+  :root.light .btn-danger:hover {
+    background: rgba(220,38,38,0.08);
+    box-shadow: 0 2px 12px rgba(220,38,38,0.2);
   }
 
   /* ── Cyber input ── */
@@ -201,6 +271,15 @@
   .cyber-input:focus {
     border-color: #00f0ff;
     box-shadow: 0 0 0 1px #00f0ff44, 0 0 12px #00f0ff22;
+  }
+  /* light mode: clean slate border, indigo focus */
+  :root.light .cyber-input {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+  }
+  :root.light .cyber-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
   }
 
   /* ── Status badge ── */
@@ -228,6 +307,19 @@
     animation: glowPulseRed 2s ease-in-out infinite;
   }
 
+  /* light mode badges: solid readable colors */
+  :root.light .badge-safe {
+    background: rgba(5,150,105,0.08);
+    border-color: rgba(5,150,105,0.4);
+    color: #059669;
+  }
+  :root.light .badge-unsafe {
+    background: rgba(220,38,38,0.08);
+    border-color: rgba(220,38,38,0.4);
+    color: #dc2626;
+    animation: none;
+  }
+
   /* ── Gradient text ── */
   .text-gradient {
     background: linear-gradient(135deg, #00f0ff 0%, #00ff9f 100%);
@@ -235,30 +327,49 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+  /* light mode: indigo → violet gradient — still punchy but not garish */
+  :root.light .text-gradient {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
   .gradient-bg { background: var(--gradient-bg); }
 
   /* ── Light mode text overrides ── */
-  :root.light .text-white   { color: #0f172a !important; }
-  :root.light .text-slate-300 { color: #334155 !important; }
-  :root.light .text-slate-400 { color: #475569 !important; }
-  :root.light .text-slate-500 { color: #64748b !important; }
-  :root.light .text-gray-400  { color: #64748b !important; }
+  :root.light .text-white         { color: #0f172a !important; }
+  :root.light .text-slate-300     { color: #334155 !important; }
+  :root.light .text-slate-400     { color: #475569 !important; }
+  :root.light .text-slate-500     { color: #64748b !important; }
+  :root.light .text-slate-600     { color: #475569 !important; }
+  :root.light .text-gray-400      { color: #64748b !important; }
+  /* neon → professional color remapping */
+  :root.light .text-neon-cyan  { color: #4f46e5 !important; text-shadow: none !important; }
+  :root.light .text-neon-green { color: #059669 !important; text-shadow: none !important; }
+  :root.light .text-neon-red   { color: #dc2626 !important; text-shadow: none !important; }
 
   /* ── Light mode background overrides ── */
-  :root.light .bg-cyber-black\/80 { background: rgba(240, 244, 248, 0.9) !important; }
-  :root.light .bg-slate-800 { background: #e2e8f0 !important; }
-  :root.light .bg-slate-700 { background: #cbd5e1 !important; }
-  :root.light .bg-slate-950 { background: #f1f5f9 !important; }
-  :root.light .bg-black\/50  { background: rgba(15, 23, 42, 0.4) !important; }
+  :root.light .bg-cyber-black\/80 { background: rgba(248, 250, 252, 0.95) !important; }
+  :root.light .bg-slate-800  { background: #e2e8f0 !important; }
+  :root.light .bg-slate-700  { background: #cbd5e1 !important; }
+  :root.light .bg-slate-950  { background: #f8fafc !important; }
+  :root.light .bg-black\/50  { background: rgba(15, 23, 42, 0.35) !important; }
+  :root.light .bg-neon-cyan  { background: #4f46e5 !important; }
+  :root.light .bg-neon-green { background: #059669 !important; }
+  :root.light .bg-neon-red   { background: #dc2626 !important; }
 
   /* ── Light mode border overrides ── */
-  :root.light .border-neon-cyan\/10  { border-color: rgba(0, 180, 210, 0.15) !important; }
-  :root.light .border-neon-cyan\/20  { border-color: rgba(0, 180, 210, 0.25) !important; }
-  :root.light .border-accent\/30     { border-color: rgba(0, 180, 210, 0.3) !important; }
-  :root.light .border-slate-800      { border-color: #cbd5e1 !important; }
+  :root.light .border-neon-cyan\/10  { border-color: rgba(99, 102, 241, 0.15) !important; }
+  :root.light .border-neon-cyan\/20  { border-color: rgba(99, 102, 241, 0.22) !important; }
+  :root.light .border-neon-cyan\/30  { border-color: rgba(99, 102, 241, 0.3) !important; }
+  :root.light .border-accent\/30     { border-color: rgba(99, 102, 241, 0.3) !important; }
+  :root.light .border-slate-800      { border-color: #e2e8f0 !important; }
+  :root.light .border-neon-green\/40 { border-color: rgba(5, 150, 105, 0.4) !important; }
+  :root.light .border-neon-red\/40   { border-color: rgba(220, 38, 38, 0.4) !important; }
+  :root.light .divide-slate-800\/50  { border-color: rgba(226, 232, 240, 0.7) !important; }
 
   /* ── Light mode: animated bg blobs ── */
-  :root.light .fixed.inset-0.opacity-30 { opacity: 0.12 !important; }
+  :root.light .fixed.inset-0.opacity-30 { opacity: 0.08 !important; }
 
   /* ── Theme toggle button ── */
   .theme-toggle {
@@ -279,8 +390,13 @@
     box-shadow: 0 0 10px #00f0ff44;
   }
   :root.light .theme-toggle {
-    border-color: rgba(0, 180, 210, 0.4);
-    color: #0284c7;
+    border-color: rgba(99, 102, 241, 0.35);
+    color: #4f46e5;
+  }
+  :root.light .theme-toggle:hover {
+    border-color: #6366f1;
+    box-shadow: 0 0 8px rgba(99,102,241,0.2);
+    background: rgba(99,102,241,0.06);
   }
 
   /* ── Onboarding tour ── */
@@ -292,7 +408,7 @@
     backdrop-filter: blur(4px);
   }
   :root.light .onboarding-overlay {
-    background: rgba(15, 23, 42, 0.6);
+    background: rgba(15, 23, 42, 0.55);
   }
   .onboarding-card {
     position: fixed;
@@ -307,8 +423,8 @@
   }
   :root.light .onboarding-card {
     background: #ffffff;
-    border-color: rgba(0, 180, 210, 0.4);
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+    border-color: rgba(99, 102, 241, 0.3);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12), 0 20px 60px rgba(99,102,241,0.08);
   }
 
   /* ── Confidence slider ── */
@@ -341,18 +457,31 @@
     cursor: pointer;
   }
   :root.light .confidence-range {
-    background: linear-gradient(to right, #0284c7 var(--val), #cbd5e1 var(--val));
+    background: linear-gradient(to right, #6366f1 var(--val), #e2e8f0 var(--val));
   }
   :root.light .confidence-range::-webkit-slider-thumb {
-    background: #0284c7;
-    border-color: #f0f4f8;
-    box-shadow: 0 0 6px #0284c788;
+    background: #4f46e5;
+    border-color: #f8fafc;
+    box-shadow: 0 2px 6px rgba(99,102,241,0.35);
+  }
+  :root.light .confidence-range::-moz-range-thumb {
+    background: #4f46e5;
+    border-color: #f8fafc;
   }
 }
 
 @layer utilities {
-  .font-orbitron  { font-family: 'Orbitron', sans-serif; }
+  .font-sora      { font-family: 'Sora', sans-serif; }
+  .font-inter     { font-family: 'Inter', sans-serif; }
   .font-mono-jet  { font-family: 'JetBrains Mono', monospace; }
+  /* legacy alias so old font-orbitron classes still work */
+  .font-orbitron  { font-family: 'Sora', sans-serif; }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 }
 
 @keyframes scan {

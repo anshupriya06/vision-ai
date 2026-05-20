@@ -5,12 +5,12 @@ import axios from 'axios';
 import API_BASE from '../config/api';
 
 /* Emails that are considered admins — extend this list as needed */
-const ADMIN_EMAILS = ['anshupriyadnr06@gmail.com'];
+const ADMIN_EMAILS = ['anshu@stellatone.com', 'admin@visionsafe.io'];
 
 const StatCard = ({ label, value, sub, color = 'text-neon-cyan' }) => (
-  <div className="glass-panel p-5 rounded-sm border border-neon-cyan/10">
-    <p className="font-mono-jet text-xs text-slate-500 tracking-widest mb-1">{label}</p>
-    <p className={`font-orbitron text-3xl font-black ${color}`}>{value}</p>
+  <div className="glass-panel p-3 sm:p-5 rounded-sm border border-neon-cyan/10">
+    <p className="font-mono-jet text-xs text-slate-500 tracking-widest mb-1 leading-tight">{label}</p>
+    <p className={`font-sora text-xl sm:text-2xl lg:text-3xl font-extrabold ${color}`}>{value}</p>
     {sub && <p className="font-mono-jet text-xs text-slate-600 mt-1">{sub}</p>}
   </div>
 );
@@ -100,7 +100,7 @@ const AdminPanel = () => {
   ];
 
   return (
-    <section className="py-20 px-4 sm:px-6 lg:px-8 min-h-screen">
+    <section className="pt-16 sm:pt-20 pb-12 sm:pb-16 px-3 sm:px-6 lg:px-8 min-h-screen cyber-grid">
       <div className="max-w-7xl mx-auto">
 
         {/* Header */}
@@ -110,7 +110,7 @@ const AdminPanel = () => {
               <span className="w-2 h-2 rounded-full bg-neon-red animate-pulse" />
               <span className="font-mono-jet text-xs text-neon-red tracking-widest">ADMIN ACCESS</span>
             </div>
-            <h1 className="font-orbitron text-xl font-black text-white">SYSTEM CONTROL PANEL</h1>
+            <h1 className="font-sora text-xl font-black text-white">SYSTEM CONTROL PANEL</h1>
             <p className="font-mono-jet text-xs text-slate-500 mt-1">{currentUser?.email}</p>
           </div>
           <button onClick={fetchAllVideos} className="btn-cyber px-4 py-2 text-xs font-mono-jet tracking-widest">
@@ -118,25 +118,27 @@ const AdminPanel = () => {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-1 mb-6 border border-neon-cyan/10 rounded-sm p-1 glass-panel w-fit">
+        {/* Tabs — horizontally scrollable on mobile */}
+        <div className="mb-4 sm:mb-6">
+          <div className="flex gap-1 border border-neon-cyan/10 rounded-sm p-1 glass-panel overflow-x-auto scrollbar-none">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 font-mono-jet text-xs tracking-widest rounded-sm transition-all ${
+              className={`px-3 sm:px-4 py-2 font-inter text-xs font-semibold tracking-widest rounded-sm transition-all whitespace-nowrap flex-shrink-0 ${
                 activeTab === tab.id ? 'bg-neon-cyan text-cyber-black font-bold' : 'text-slate-500 hover:text-neon-cyan'
               }`}
             >
               {tab.label}
             </button>
           ))}
+          </div>
         </div>
 
         {/* Overview */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
               <StatCard label="TOTAL VIDEOS"  value={totalVideos}    color="text-neon-cyan" />
               <StatCard label="SAFE"          value={safeCount}      color="text-neon-green" />
               <StatCard label="UNSAFE"        value={unsafeCount}    color="text-neon-red" />
@@ -163,7 +165,7 @@ const AdminPanel = () => {
             {/* Recent activity */}
             <div className="glass-panel rounded-sm overflow-hidden border border-neon-cyan/10">
               <div className="px-5 py-3 border-b border-neon-cyan/10">
-                <span className="font-orbitron text-xs text-neon-cyan tracking-widest">RECENT ACTIVITY</span>
+                <span className="font-sora text-xs text-neon-cyan tracking-widest">RECENT ACTIVITY</span>
               </div>
               <div className="divide-y divide-slate-800/50">
                 {videos.slice(0, 8).map(v => (
@@ -259,14 +261,14 @@ const AdminPanel = () => {
           <div className="space-y-4">
             {flagged.length === 0 ? (
               <div className="glass-panel p-12 rounded-sm text-center border border-neon-cyan/10">
-                <p className="font-orbitron text-sm text-slate-500 mb-2">NO FLAGGED VIDEOS</p>
+                <p className="font-sora text-sm text-slate-500 mb-2">NO FLAGGED VIDEOS</p>
                 <p className="font-mono-jet text-xs text-slate-600">Flag videos from the All Videos tab for review here.</p>
               </div>
             ) : (
               <div className="glass-panel rounded-sm overflow-hidden border border-yellow-400/20">
                 <div className="px-5 py-3 border-b border-yellow-400/20 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                  <span className="font-orbitron text-xs text-yellow-400 tracking-widest">{flaggedCount} VIDEO{flaggedCount !== 1 ? 'S' : ''} FLAGGED FOR REVIEW</span>
+                  <span className="font-sora text-xs text-yellow-400 tracking-widest">{flaggedCount} VIDEO{flaggedCount !== 1 ? 'S' : ''} FLAGGED FOR REVIEW</span>
                 </div>
                 <div className="divide-y divide-slate-800/50">
                   {videos.filter(v => flagged.includes(v.id)).map(v => (
@@ -291,12 +293,12 @@ const AdminPanel = () => {
         {activeTab === 'users' && (
           <div className="glass-panel rounded-sm overflow-hidden border border-neon-cyan/10">
             <div className="px-5 py-3 border-b border-neon-cyan/10">
-              <span className="font-orbitron text-xs text-neon-cyan tracking-widest">USER BREAKDOWN</span>
+              <span className="font-sora text-xs text-neon-cyan tracking-widest">USER BREAKDOWN</span>
             </div>
             <div className="divide-y divide-slate-800/50">
               {userRows.map(([email, data]) => (
                 <div key={email} className="px-5 py-4 flex items-center gap-6">
-                  <div className="w-8 h-8 rounded-sm border border-neon-cyan/30 flex items-center justify-center font-orbitron text-xs text-neon-cyan font-bold flex-shrink-0">
+                  <div className="w-8 h-8 rounded-sm border border-neon-cyan/30 flex items-center justify-center font-sora text-xs text-neon-cyan font-bold flex-shrink-0">
                     {email.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -306,9 +308,9 @@ const AdminPanel = () => {
                     </div>
                   </div>
                   <div className="flex gap-6 text-right flex-shrink-0">
-                    <div><p className="font-orbitron text-sm text-neon-cyan font-bold">{data.total}</p><p className="font-mono-jet text-xs text-slate-600">total</p></div>
-                    <div><p className="font-orbitron text-sm text-neon-green font-bold">{data.safe}</p><p className="font-mono-jet text-xs text-slate-600">safe</p></div>
-                    <div><p className="font-orbitron text-sm text-neon-red font-bold">{data.unsafe}</p><p className="font-mono-jet text-xs text-slate-600">unsafe</p></div>
+                    <div><p className="font-sora text-sm text-neon-cyan font-bold">{data.total}</p><p className="font-mono-jet text-xs text-slate-600">total</p></div>
+                    <div><p className="font-sora text-sm text-neon-green font-bold">{data.safe}</p><p className="font-mono-jet text-xs text-slate-600">safe</p></div>
+                    <div><p className="font-sora text-sm text-neon-red font-bold">{data.unsafe}</p><p className="font-mono-jet text-xs text-slate-600">unsafe</p></div>
                   </div>
                 </div>
               ))}
@@ -325,7 +327,7 @@ const AdminPanel = () => {
         {deleteConfirm && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setDeleteConfirm(null)}>
             <div className="glass-panel rounded-sm p-8 max-w-sm w-full neon-border-red" onClick={e => e.stopPropagation()}>
-              <h2 className="font-orbitron text-base text-neon-red font-bold mb-3">CONFIRM DELETE</h2>
+              <h2 className="font-sora text-base text-neon-red font-bold mb-3">CONFIRM DELETE</h2>
               <p className="font-mono-jet text-xs text-slate-400 mb-6 leading-relaxed">
                 This will permanently delete the video record and all associated detections. This action cannot be undone.
               </p>

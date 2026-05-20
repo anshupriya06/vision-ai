@@ -147,7 +147,7 @@ const LiveCamera = () => {
         {liveStatus && (
           <div className={`glass-panel p-3 rounded-sm flex items-center gap-3 ${liveStatus === 'SAFE' ? 'neon-border-green' : 'neon-border-red'}`}>
             <StatusDot active color={liveStatus === 'SAFE' ? 'green' : 'red'} />
-            <span className={`font-orbitron text-sm font-black ${liveStatus === 'SAFE' ? 'text-neon-green' : 'text-neon-red'}`}>
+            <span className={`font-sora text-sm font-black ${liveStatus === 'SAFE' ? 'text-neon-green' : 'text-neon-red'}`}>
               {liveStatus === 'SAFE' ? '✓ AREA CLEAR' : '⚠ THREAT DETECTED'}
             </span>
             <span className="font-mono-jet text-xs text-slate-500 ml-auto">LAST FRAME ANALYSIS</span>
@@ -182,7 +182,7 @@ const LiveCamera = () => {
                 <svg className="w-12 h-12 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
-                <p className="font-orbitron text-sm text-slate-600">CAMERA OFFLINE</p>
+                <p className="font-sora text-sm text-slate-600">CAMERA OFFLINE</p>
                 <p className="font-mono-jet text-xs text-slate-700">Start the camera to begin live monitoring</p>
               </div>
             )}
@@ -232,7 +232,7 @@ const LiveCamera = () => {
         {snapshots.length > 0 && (
           <div className="glass-panel rounded-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-neon-cyan/10 flex items-center justify-between">
-              <span className="font-orbitron text-xs text-neon-cyan tracking-widest">CAPTURED FRAMES</span>
+              <span className="font-sora text-xs text-neon-cyan tracking-widest">CAPTURED FRAMES</span>
               <button onClick={clearSnapshots} className="font-mono-jet text-xs text-slate-500 hover:text-neon-red transition-colors">CLEAR</button>
             </div>
             <div className="flex gap-2 p-3 overflow-x-auto">
@@ -255,7 +255,7 @@ const LiveCamera = () => {
         {/* Camera selector */}
         <div className="glass-panel rounded-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-neon-cyan/10">
-            <span className="font-orbitron text-xs text-neon-cyan tracking-widest">CAMERA CONFIG</span>
+            <span className="font-sora text-xs text-neon-cyan tracking-widest">CAMERA CONFIG</span>
           </div>
           <div className="p-4 space-y-4">
             <div>
@@ -276,12 +276,12 @@ const LiveCamera = () => {
             <div>
               <div className="flex justify-between mb-2">
                 <label className="font-mono-jet text-xs text-slate-500 tracking-widest">CAPTURE INTERVAL</label>
-                <span className="font-orbitron text-xs text-neon-cyan font-bold">every {captureInterval}s</span>
+                <span className="font-sora text-xs text-neon-cyan font-bold">every {captureInterval}s</span>
               </div>
               <input
                 type="range" min={2} max={30} step={1}
                 value={captureInterval}
-                onChange={e => { setCaptureInterval(Number(e.target.value)); if (isAnalyzing) { stopAnalysis(); setTimeout(startAnalysis, 100); } }}
+                onChange={e => { const v = Number(e.target.value); setCaptureInterval(v); if (isAnalyzing) { stopAnalysis(); setTimeout(() => { intervalRef.current = setInterval(analyzeFrame, v * 1000); setIsAnalyzing(true); }, 100); } }}
                 className="confidence-range"
                 style={{ '--val': `${((captureInterval - 2) / 28) * 100}%` }}
               />
@@ -296,7 +296,7 @@ const LiveCamera = () => {
         {/* Live stats */}
         <div className="glass-panel rounded-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-neon-cyan/10">
-            <span className="font-orbitron text-xs text-neon-cyan tracking-widest">SESSION STATS</span>
+            <span className="font-sora text-xs text-neon-cyan tracking-widest">SESSION STATS</span>
           </div>
           <div className="p-4 space-y-3">
             {[
@@ -307,7 +307,7 @@ const LiveCamera = () => {
             ].map((s, i) => (
               <div key={i} className="flex items-center justify-between py-1.5 border-b border-slate-800 last:border-0">
                 <span className="font-mono-jet text-xs text-slate-500 tracking-widest">{s.label}</span>
-                <span className={`font-orbitron text-sm font-bold ${s.color}`}>{s.value}</span>
+                <span className={`font-sora text-sm font-bold ${s.color}`}>{s.value}</span>
               </div>
             ))}
           </div>

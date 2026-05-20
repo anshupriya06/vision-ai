@@ -33,16 +33,20 @@ const SmartAlerts = ({ onAlertTriggered }) => {
     localStorage.setItem(ALERT_SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
 
+  /* keep a ref to latest settings so the event handler is never stale */
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
   /* listen for unsafe events broadcast from parent via custom event */
   useEffect(() => {
     const handler = (e) => {
-      if (!settings.enabled) return;
+      if (!settingsRef.current.enabled) return;
       const { status } = e.detail || {};
       if (status === 'UNSAFE') recordUnsafeEvent();
     };
     window.addEventListener('vs:analysis-result', handler);
     return () => window.removeEventListener('vs:analysis-result', handler);
-  }, [settings]);
+  }, [recordUnsafeEvent]);
 
   const recordUnsafeEvent = useCallback(() => {
     const now = Date.now();
@@ -124,9 +128,9 @@ const SmartAlerts = ({ onAlertTriggered }) => {
       {/* Active alert flash banners */}
       {activeAlerts.map(alert => (
         <div key={alert.id} className="glass-panel neon-border-red p-3 rounded-sm flex items-start gap-3 animate-slide-in">
-          <span className="text-neon-red font-orbitron text-base animate-pulse">⚠</span>
+          <span className="text-neon-red font-sora text-base animate-pulse">⚠</span>
           <div className="flex-1">
-            <p className="font-orbitron text-xs font-bold text-neon-red tracking-widest">THRESHOLD BREACHED</p>
+            <p className="font-sora text-xs font-bold text-neon-red tracking-widest">THRESHOLD BREACHED</p>
             <p className="font-mono-jet text-xs text-slate-300 mt-0.5">{alert.message}</p>
           </div>
           <button onClick={() => setActiveAlerts(p => p.filter(a => a.id !== alert.id))} className="text-slate-600 hover:text-slate-400 text-xs">✕</button>
@@ -138,7 +142,7 @@ const SmartAlerts = ({ onAlertTriggered }) => {
         <div className="px-4 py-3 border-b border-neon-cyan/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${settings.enabled ? 'bg-neon-green animate-pulse' : 'bg-slate-600'}`} />
-            <span className="font-orbitron text-xs text-neon-cyan tracking-widest">SMART ALERTS</span>
+            <span className="font-sora text-xs text-neon-cyan tracking-widest">SMART ALERTS</span>
           </div>
           {/* master enable */}
           <button
@@ -174,7 +178,7 @@ const SmartAlerts = ({ onAlertTriggered }) => {
             <div>
               <div className="flex justify-between mb-2">
                 <label className="font-mono-jet text-xs text-slate-500 tracking-widest">UNSAFE EVENT THRESHOLD</label>
-                <span className="font-orbitron text-xs text-neon-red font-bold">{settings.unsafeThreshold} events</span>
+                <span className="font-sora text-xs text-neon-red font-bold">{settings.unsafeThreshold} events</span>
               </div>
               <input type="range" min={1} max={20} step={1}
                 value={settings.unsafeThreshold}
@@ -189,7 +193,7 @@ const SmartAlerts = ({ onAlertTriggered }) => {
             <div>
               <div className="flex justify-between mb-2">
                 <label className="font-mono-jet text-xs text-slate-500 tracking-widest">TIME WINDOW</label>
-                <span className="font-orbitron text-xs text-neon-cyan font-bold">{settings.windowSeconds}s</span>
+                <span className="font-sora text-xs text-neon-cyan font-bold">{settings.windowSeconds}s</span>
               </div>
               <input type="range" min={10} max={300} step={10}
                 value={settings.windowSeconds}

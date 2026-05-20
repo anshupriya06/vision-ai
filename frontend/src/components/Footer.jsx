@@ -42,7 +42,7 @@ const Footer = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
               </div>
-              <span className="font-orbitron text-sm font-bold"><span className="text-neon-cyan">VISION</span><span className="text-white">SAFE</span></span>
+              <span className="font-sora text-sm font-bold"><span className="text-neon-cyan">VISION</span><span className="text-white">SAFE</span></span>
             </div>
             <p className="font-mono-jet text-xs text-slate-500 leading-relaxed">AI-powered surveillance for a safer tomorrow.</p>
             <div className="flex gap-3 mt-4">
@@ -62,7 +62,7 @@ const Footer = () => {
           {/* Links */}
           {Object.entries(links).map(([cat, items]) => (
             <div key={cat}>
-              <h3 className="font-orbitron text-xs text-neon-cyan tracking-widest mb-4">{cat}</h3>
+              <h3 className="font-sora text-xs text-neon-cyan tracking-widest mb-4">{cat}</h3>
               <ul className="space-y-2">
                 {items.map(item => (
                   <li key={item.label}>
@@ -77,7 +77,7 @@ const Footer = () => {
         {/* Newsletter */}
         <div className="glass-panel rounded-sm p-5 mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
-            <h3 className="font-orbitron text-xs text-white tracking-widest mb-1">STAY UPDATED</h3>
+            <h3 className="font-sora text-xs text-white tracking-widest mb-1">STAY UPDATED</h3>
             <p className="font-mono-jet text-xs text-slate-500">Receive system updates and security alerts</p>
           </div>
           <div className="w-full md:w-auto">

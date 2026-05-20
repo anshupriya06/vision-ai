@@ -7,6 +7,9 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: {
+        'xs': '480px',
+      },
       colors: {
         cyber: {
           black:  '#020617',
@@ -25,10 +28,12 @@ export default {
         accent: '#00f0ff',
       },
       fontFamily: {
-        orbitron:  ['Orbitron', 'sans-serif'],
-        space:     ['Space Grotesk', 'sans-serif'],
+        sora:      ['Sora', 'sans-serif'],
+        inter:     ['Inter', 'sans-serif'],
+        orbitron:  ['Sora', 'sans-serif'],
+        space:     ['Inter', 'sans-serif'],
         mono:      ['JetBrains Mono', 'monospace'],
-        sans:      ['Space Grotesk', 'system-ui', 'sans-serif'],
+        sans:      ['Inter', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'neon-cyan':  '0 0 8px #00f0ff, 0 0 20px #00f0ff55',

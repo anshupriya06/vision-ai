@@ -54,7 +54,7 @@ const Profile = () => {
         {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="font-orbitron text-2xl font-black text-white tracking-wider">OPERATOR <span className="text-neon-cyan">PROFILE</span></h1>
+            <h1 className="font-sora text-2xl font-black text-white tracking-wider">OPERATOR <span className="text-neon-cyan">PROFILE</span></h1>
             <p className="font-mono-jet text-xs text-slate-500 tracking-wide mt-1">IDENTITY MANAGEMENT SYSTEM</p>
           </div>
           <div className="flex gap-3">
@@ -71,13 +71,13 @@ const Profile = () => {
               {profile.photoURL ? (
                 <img src={profile.photoURL} alt="" className="relative w-20 h-20 rounded-sm ring-2 ring-neon-cyan object-cover" />
               ) : (
-                <div className="relative w-20 h-20 rounded-sm ring-2 ring-neon-cyan bg-cyber-navy flex items-center justify-center font-orbitron text-2xl font-black text-neon-cyan">
+                <div className="relative w-20 h-20 rounded-sm ring-2 ring-neon-cyan bg-cyber-navy flex items-center justify-center font-sora text-2xl font-black text-neon-cyan">
                   {(profile.displayName || currentUser?.email || 'U').charAt(0).toUpperCase()}
                 </div>
               )}
             </div>
             <div className="space-y-1">
-              <h2 className="font-orbitron text-xl font-bold text-white">{profile.displayName || 'OPERATOR'}</h2>
+              <h2 className="font-sora text-xl font-bold text-white">{profile.displayName || 'OPERATOR'}</h2>
               <p className="font-mono-jet text-sm text-neon-cyan">{currentUser?.email}</p>
               <div className="flex gap-2 mt-2">
                 <span className="badge-safe">ACTIVE</span>
@@ -113,7 +113,7 @@ const Profile = () => {
           ].map((s, i) => (
             <div key={i} className="glass-panel rounded-sm p-4 hover:border-neon-cyan/30 transition-all">
               <p className="font-mono-jet text-xs text-slate-500 tracking-widest mb-2">{s.label}</p>
-              <p className={`font-orbitron text-2xl font-black ${s.color}`}>{s.value}</p>
+              <p className={`font-sora text-2xl font-black ${s.color}`}>{s.value}</p>
             </div>
           ))}
         </div>
@@ -121,7 +121,7 @@ const Profile = () => {
         {/* Activity */}
         <div className="glass-panel rounded-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-neon-cyan/10 flex items-center justify-between">
-            <span className="font-orbitron text-xs text-neon-cyan tracking-widest">RECENT ACTIVITY LOG</span>
+            <span className="font-sora text-xs text-neon-cyan tracking-widest">RECENT ACTIVITY LOG</span>
           </div>
           <div className="p-4">
             {loading ? (
