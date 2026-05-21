@@ -403,7 +403,7 @@ async def get_video_history(user_email: str = None, email: str = None, db: Sessi
             videos = VideoCRUD.get_videos_by_user(db, user_email)
         else:
             videos = db.query(Video).order_by(Video.upload_time.desc()).limit(100).all()
-        
+
         return {
             "status": "success",
             "count": len(videos),
@@ -424,6 +424,34 @@ async def get_video_history(user_email: str = None, email: str = None, db: Sessi
         }
     except Exception as e:
         logger.error(f"Error fetching video history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/videos/stats")
+async def get_user_stats(user_email: str, db: Session = Depends(get_db)):
+    """Get safety statistics for a user"""
+    try:
+        user_email = user_email.strip().lower()
+        videos = VideoCRUD.get_videos_by_user(db, user_email)
+
+        total_videos = len(videos)
+        unsafe_count = len([v for v in videos if (v.overall_status or "").upper() == "UNSAFE"])
+        safe_count = total_videos - unsafe_count
+        avg_confidence = (
+            sum((v.confidence or 0) for v in videos) / total_videos
+            if total_videos > 0 else 0
+        )
+
+        return {
+            "status": "success",
+            "user_email": user_email,
+            "total_videos": total_videos,
+            "safe_videos": safe_count,
+            "unsafe_videos": unsafe_count,
+            "average_confidence": round(avg_confidence, 3),
+            "unsafe_percentage": round((unsafe_count / total_videos * 100) if total_videos > 0 else 0, 2)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching user stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/videos/{video_id}")
@@ -506,34 +534,6 @@ async def delete_video(video_id: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Error deleting video: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/videos/stats/{user_email}")
-async def get_user_stats(user_email: str, db: Session = Depends(get_db)):
-    """Get safety statistics for a user"""
-    try:
-        user_email = user_email.strip().lower()
-        videos = VideoCRUD.get_videos_by_user(db, user_email)
-        
-        total_videos = len(videos)
-        unsafe_count = len([v for v in videos if (v.overall_status or "").upper() == "UNSAFE"])
-        safe_count = total_videos - unsafe_count
-        avg_confidence = (
-            sum((v.confidence or 0) for v in videos) / total_videos
-            if total_videos > 0 else 0
-        )
-        
-        return {
-            "status": "success",
-            "user_email": user_email,
-            "total_videos": total_videos,
-            "safe_videos": safe_count,
-            "unsafe_videos": unsafe_count,
-            "average_confidence": round(avg_confidence, 3),
-            "unsafe_percentage": round((unsafe_count / total_videos * 100) if total_videos > 0 else 0, 2)
-        }
-    except Exception as e:
-        logger.error(f"Error fetching user stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/newsletter/subscribe")

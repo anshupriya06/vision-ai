@@ -22,7 +22,7 @@ VEHICLE_CLASSES = {
     7: "Truck",
 }
 
-SAFE_ACTIVITIES = {"Walking", "Running", "Standing", "Sitting", "Yoga"}
+SAFE_ACTIVITIES = {"Walking", "Running", "Standing", "Standing Still", "Sitting", "Sit Down", "Yoga"}
 
 
 def load_models():
@@ -49,7 +49,8 @@ def load_models():
             pose_clf          = joblib.load(str(clf_path))
             pose_scaler       = joblib.load(str(scaler_path))
             pose_feature_cols = joblib.load(str(cols_path))
-            logger.info("✓ Loaded pose activity classifier")
+            classes = list(getattr(pose_clf, 'classes_', []))
+            logger.info(f"✓ Loaded pose activity classifier — classes: {classes}")
         else:
             logger.warning("Pose classifier pkl files not found — using rule-based fallback")
 
@@ -268,10 +269,14 @@ def process_video(input_path: str, output_path: str) -> dict:
         if not cap.isOpened():
             raise RuntimeError("Cannot open video file")
 
-        fps         = cap.get(cv2.CAP_PROP_FPS) or 25
-        width       = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps          = cap.get(cv2.CAP_PROP_FPS) or 25
+        width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        # Process every Nth frame; draw cached results on skipped frames
+        # Target ~8 AI inferences/sec regardless of source fps
+        PROCESS_EVERY = max(1, int(round(fps / 8)))
 
         fourcc = cv2.VideoWriter_fourcc(*"avc1")
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -285,8 +290,9 @@ def process_video(input_path: str, output_path: str) -> dict:
         frame_count         = 0
         processed_frames    = 0
         unsafe_frame_count  = 0
+        last_smoothed       = []  # cached detections reused on skipped frames
 
-        logger.info(f"Processing {total_frames} frames at {fps:.1f} fps...")
+        logger.info(f"Processing {total_frames} frames at {fps:.1f} fps (every {PROCESS_EVERY} frames)...")
 
         while True:
             ret, frame = cap.read()
@@ -294,110 +300,119 @@ def process_video(input_path: str, output_path: str) -> dict:
                 break
 
             frame_count += 1
-            processed_frames += 1
-            frame_has_unsafe = False
-            frame_detections = []
+            is_inference_frame = (frame_count % PROCESS_EVERY == 0) or frame_count == 1
 
-            # ── YOLO object detection ──────────────────────────────────────
-            yolo_results = yolo_model.predict(frame, verbose=False)[0]
+            if is_inference_frame:
+                processed_frames += 1
+                frame_has_unsafe = False
+                frame_detections = []
 
-            for box in yolo_results.boxes:
-                cls_id = int(box.cls[0])
-                conf   = float(box.conf[0])
-                if conf < 0.4:
-                    continue
+                # Downscale for inference, keep original for writing
+                infer_w = min(width, 640)
+                scale   = infer_w / width
+                infer_frame = cv2.resize(frame, (infer_w, int(height * scale))) if scale < 1.0 else frame
 
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                # ── YOLO object detection ──────────────────────────────────────
+                yolo_results = yolo_model.predict(infer_frame, verbose=False)[0]
 
-                # ── Person: use MediaPipe for activity classification ──
-                if cls_id == 0:
-                    crop = frame[y1:y2, x1:x2]
-                    if crop.size == 0:
+                inv = 1.0 / scale if scale < 1.0 else 1.0
+
+                for box in yolo_results.boxes:
+                    cls_id = int(box.cls[0])
+                    conf   = float(box.conf[0])
+                    if conf < 0.4:
                         continue
 
-                    activity = "Person"
-                    # Resize for speed
-                    h, w = crop.shape[:2]
-                    if w > 256:
-                        crop = cv2.resize(crop, (256, int(h * 256 / w)))
+                    # Scale coords back to original resolution
+                    x1, y1, x2, y2 = (int(v * inv) for v in box.xyxy[0])
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(width, x2), min(height, y2)
 
-                    rgb      = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                    result   = pose_landmarker.detect(mp_image)
+                    # ── Person: use MediaPipe for activity classification ──
+                    if cls_id == 0:
+                        crop = frame[y1:y2, x1:x2]
+                        if crop.size == 0:
+                            continue
 
-                    if result.pose_landmarks:
-                        landmarks = result.pose_landmarks[0]
-                        if pose_clf is not None and pose_scaler is not None and pose_feature_cols is not None:
-                            # Use trained ML classifier
-                            import pandas as pd
-                            angles = _extract_angles(landmarks)
-                            if angles is not None:
-                                X = pd.DataFrame([angles], columns=pose_feature_cols)
-                                X_scaled = pose_scaler.transform(X)
-                                activity = pose_clf.predict(X_scaled)[0]
+                        activity = "Person"
+                        h, w = crop.shape[:2]
+                        if w > 256:
+                            crop = cv2.resize(crop, (256, int(h * 256 / w)))
+
+                        rgb      = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                        result   = pose_landmarker.detect(mp_image)
+
+                        if result.pose_landmarks:
+                            landmarks = result.pose_landmarks[0]
+                            if pose_clf is not None and pose_scaler is not None and pose_feature_cols is not None:
+                                import pandas as pd
+                                angles = _extract_angles(landmarks)
+                                if angles is not None:
+                                    X = pd.DataFrame([angles], columns=pose_feature_cols)
+                                    X_scaled = pose_scaler.transform(X)
+                                    activity = str(pose_clf.predict(X_scaled)[0]).strip().title()
+                                else:
+                                    activity = _classify_activity(landmarks)
                             else:
                                 activity = _classify_activity(landmarks)
-                        else:
-                            # Fallback: rule-based classification
-                            activity = _classify_activity(landmarks)
 
-                    detected_activities.append(activity)
-                    is_safe = activity in SAFE_ACTIVITIES or activity == "Person"
-                    status  = "SAFE" if is_safe else "UNSAFE"
-                    color   = (0, 200, 0) if is_safe else (0, 0, 255)
+                        detected_activities.append(activity)
+                        is_safe = activity in SAFE_ACTIVITIES or activity == "Person"
+                        status  = "SAFE" if is_safe else "UNSAFE"
+                        color   = (0, 200, 0) if is_safe else (0, 0, 255)
 
-                    if not is_safe:
+                        if not is_safe:
+                            frame_has_unsafe = True
+                            unsafe_events.append({"frame": frame_count, "activity": activity})
+
+                        frame_detections.append({
+                            "box": [x1, y1, x2, y2],
+                            "label": activity,
+                            "status": status,
+                            "color": color,
+                            "conf": conf,
+                        })
+
+                    # ── Vehicle: always UNSAFE ────────────────────────────
+                    elif cls_id in VEHICLE_CLASSES:
+                        label = VEHICLE_CLASSES[cls_id]
                         frame_has_unsafe = True
-                        unsafe_events.append({"frame": frame_count, "activity": activity})
+                        unsafe_events.append({"frame": frame_count, "activity": label})
 
-                    frame_detections.append({
-                        "box": [x1, y1, x2, y2],
-                        "label": activity,
-                        "status": status,
-                        "color": color,
-                        "conf": conf,
+                        frame_detections.append({
+                            "box": [x1, y1, x2, y2],
+                            "label": label,
+                            "status": "UNSAFE",
+                            "color": (0, 0, 255),
+                            "conf": conf,
+                        })
+
+                last_smoothed = tracker.update(frame_detections)
+
+                for det in last_smoothed:
+                    all_detections.append({
+                        "frame_number":      frame_count,
+                        "activity_label":    det["label"],
+                        "safety_status":     det["status"],
+                        "timestamp_seconds": round(frame_count / fps, 2),
+                        "confidence":        round(det["conf"], 2),
+                        "bounding_box":      {"x1": det["box"][0], "y1": det["box"][1],
+                                              "x2": det["box"][2], "y2": det["box"][3]},
                     })
 
-                # ── Vehicle: always UNSAFE ────────────────────────────
-                elif cls_id in VEHICLE_CLASSES:
-                    label = VEHICLE_CLASSES[cls_id]
-                    frame_has_unsafe = True
-                    unsafe_events.append({"frame": frame_count, "activity": label})
+                if frame_has_unsafe:
+                    unsafe_frame_count += 1
 
-                    frame_detections.append({
-                        "box": [x1, y1, x2, y2],
-                        "label": label,
-                        "status": "UNSAFE",
-                        "color": (0, 0, 255),
-                        "conf": conf,
-                    })
-
-            # ── Smooth boxes and draw ──────────────────────────────────────
-            smoothed = tracker.update(frame_detections)
-
-            for det in smoothed:
+            # ── Draw cached boxes on every frame (inference or skipped) ──
+            for det in last_smoothed:
                 x1, y1, x2, y2 = det["box"]
-                label  = det["label"]
-                status = det["status"]
-                color  = det["color"]
-                conf   = det["conf"]
-
+                color = det["color"]
+                conf  = det["conf"]
+                text  = f"{det['label']} {conf:.0%}"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                text = f"{label} | {status} {conf:.0%}"
                 cv2.putText(frame, text, (x1, max(y1 - 8, 0)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                all_detections.append({
-                    "frame_number":      frame_count,
-                    "activity_label":    label,
-                    "safety_status":     status,
-                    "timestamp_seconds": round(frame_count / fps, 2),
-                    "confidence":        round(conf, 2),
-                    "bounding_box":      {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
-                })
-
-            if frame_has_unsafe:
-                unsafe_frame_count += 1
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
             out.write(frame)
 

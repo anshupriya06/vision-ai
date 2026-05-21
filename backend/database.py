@@ -2,24 +2,46 @@
 Database Configuration and ORM Models for VisionSafe
 PostgreSQL connection and SQLAlchemy models
 """
-from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, ForeignKey, BigInteger, CheckConstraint, Text
+from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, ForeignKey, BigInteger, CheckConstraint, Text, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from datetime import datetime
 import uuid
 import os
 from typing import Optional
+from pathlib import Path
 
-# Database connection configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:1234@localhost:5432/visionsafe"
-)
+# Use PostgreSQL if available, otherwise fall back to local SQLite file
+_pg_url = os.getenv("DATABASE_URL", "postgresql://postgres:1234@localhost:5432/visionsafe")
 
-# Create SQLAlchemy engine
-# Set echo=False for production (no SQL query logging for better performance)
-engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
+def _pg_reachable(url: str) -> bool:
+    try:
+        import psycopg2
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        conn = psycopg2.connect(host=p.hostname, port=p.port or 5432,
+                                dbname=p.path.lstrip('/'), user=p.username, password=p.password,
+                                connect_timeout=2)
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+if _pg_reachable(_pg_url):
+    DATABASE_URL = _pg_url
+    _sqlite = False
+else:
+    _db_file = Path(__file__).parent / "visionsafe.db"
+    DATABASE_URL = f"sqlite:///{_db_file}"
+    _sqlite = True
+
+import logging as _logging
+_logging.getLogger(__name__).info(f"Database: {DATABASE_URL}")
+
+if _sqlite:
+    engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -38,9 +60,9 @@ class Video(Base):
     """
     __tablename__ = "videos"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     filename = Column(String, nullable=False)
-    upload_time = Column(DateTime(timezone=True), default=datetime.utcnow)
+    upload_time = Column(DateTime, default=datetime.utcnow)
     processed_video_path = Column(String)
     overall_status = Column(String, nullable=False)
     user_email = Column(String, nullable=False)
@@ -48,16 +70,11 @@ class Video(Base):
     duration_seconds = Column(Float)
     total_frames = Column(Integer)
     file_size_bytes = Column(BigInteger)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship to detections
     detections = relationship("Detection", back_populates="video", cascade="all, delete-orphan")
-
-    # Check constraint for status
-    __table_args__ = (
-        CheckConstraint("overall_status IN ('SAFE', 'UNSAFE')", name='check_video_status'),
-    )
 
     def __repr__(self):
         return f"<Video(id={self.id}, filename={self.filename}, status={self.overall_status})>"
@@ -69,23 +86,18 @@ class Detection(Base):
     """
     __tablename__ = "detections"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    video_id = Column(UUID(as_uuid=True), ForeignKey('videos.id', ondelete='CASCADE'), nullable=False)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    video_id = Column(String, ForeignKey('videos.id', ondelete='CASCADE'), nullable=False)
     frame_number = Column(Integer, nullable=False)
     activity_label = Column(String, nullable=False)
     safety_status = Column(String, nullable=False)
     timestamp_seconds = Column(Float, nullable=False)
     confidence = Column(Float)
-    bounding_box = Column(JSONB)
-    detected_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    bounding_box = Column(JSON)
+    detected_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship to video
     video = relationship("Video", back_populates="detections")
-
-    # Check constraint for status
-    __table_args__ = (
-        CheckConstraint("safety_status IN ('SAFE', 'UNSAFE')", name='check_detection_status'),
-    )
 
     def __repr__(self):
         return f"<Detection(id={self.id}, video_id={self.video_id}, activity={self.activity_label})>"
@@ -97,11 +109,11 @@ class UserProfile(Base):
     """
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String, nullable=False, unique=True, index=True)
     mobile_number = Column(String)
     bio = Column(Text)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     def __repr__(self):
         return f"<UserProfile(email={self.email})>"
@@ -113,11 +125,11 @@ class NewsletterSubscriber(Base):
     """
     __tablename__ = "newsletter_subscribers"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String, nullable=False, unique=True, index=True)
-    subscribed_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    subscribed_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(String, default='true')  # 'true' or 'false' for unsubscribe
-    unsubscribe_token = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True)
+    unsubscribe_token = Column(String, default=lambda: str(uuid.uuid4()), unique=True)
 
     def __repr__(self):
         return f"<NewsletterSubscriber(email={self.email}, active={self.is_active})>"
@@ -177,35 +189,35 @@ class VideoCRUD:
         return video
     
     @staticmethod
-    def get_video(db, video_id: uuid.UUID):
+    def get_video(db, video_id: str):
         """Get video by ID"""
-        return db.query(Video).filter(Video.id == video_id).first()
-    
+        return db.query(Video).filter(Video.id == str(video_id)).first()
+
     @staticmethod
     def get_videos_by_user(db, user_email: str, limit: int = 100):
         """Get all videos for a specific user"""
         return db.query(Video).filter(Video.user_email == user_email).order_by(Video.upload_time.desc()).limit(limit).all()
-    
+
     @staticmethod
     def get_unsafe_videos(db, limit: int = 100):
         """Get all unsafe videos"""
         return db.query(Video).filter(Video.overall_status == 'UNSAFE').order_by(Video.upload_time.desc()).limit(limit).all()
-    
+
     @staticmethod
-    def update_video(db, video_id: uuid.UUID, **kwargs):
+    def update_video(db, video_id: str, **kwargs):
         """Update video record"""
-        video = db.query(Video).filter(Video.id == video_id).first()
+        video = db.query(Video).filter(Video.id == str(video_id)).first()
         if video:
             for key, value in kwargs.items():
                 setattr(video, key, value)
             db.commit()
             db.refresh(video)
         return video
-    
+
     @staticmethod
-    def delete_video(db, video_id: uuid.UUID):
+    def delete_video(db, video_id: str):
         """Delete video record"""
-        video = db.query(Video).filter(Video.id == video_id).first()
+        video = db.query(Video).filter(Video.id == str(video_id)).first()
         if video:
             db.delete(video)
             db.commit()
@@ -217,11 +229,11 @@ class DetectionCRUD:
     """CRUD operations for Detection model"""
     
     @staticmethod
-    def create_detection(db, video_id: uuid.UUID, frame_number: int, activity_label: str,
+    def create_detection(db, video_id: str, frame_number: int, activity_label: str,
                         safety_status: str, timestamp_seconds: float, **kwargs):
         """Create a new detection record"""
         detection = Detection(
-            video_id=video_id,
+            video_id=str(video_id),
             frame_number=frame_number,
             activity_label=activity_label,
             safety_status=safety_status,
@@ -234,15 +246,15 @@ class DetectionCRUD:
         return detection
     
     @staticmethod
-    def get_detections_by_video(db, video_id: uuid.UUID):
+    def get_detections_by_video(db, video_id: str):
         """Get all detections for a specific video"""
-        return db.query(Detection).filter(Detection.video_id == video_id).order_by(Detection.frame_number).all()
-    
+        return db.query(Detection).filter(Detection.video_id == str(video_id)).order_by(Detection.frame_number).all()
+
     @staticmethod
-    def get_unsafe_detections_by_video(db, video_id: uuid.UUID):
+    def get_unsafe_detections_by_video(db, video_id: str):
         """Get all unsafe detections for a specific video"""
         return db.query(Detection).filter(
-            Detection.video_id == video_id,
+            Detection.video_id == str(video_id),
             Detection.safety_status == 'UNSAFE'
         ).order_by(Detection.frame_number).all()
     

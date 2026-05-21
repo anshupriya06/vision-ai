@@ -98,8 +98,12 @@ const Footer = () => {
         <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-neon-cyan/10">
           <p className="font-mono-jet text-xs text-slate-600">© {new Date().getFullYear()} VISIONSAFE. ALL RIGHTS RESERVED.</p>
           <div className="flex gap-4">
-            {['Privacy Policy', 'Terms', 'Cookies'].map(l => (
-              <Link key={l} to="/" className="font-mono-jet text-xs text-slate-600 hover:text-neon-cyan transition-colors">{l}</Link>
+            {[
+              { label: 'Privacy Policy', path: '/privacy' },
+              { label: 'Terms', path: '/terms' },
+              { label: 'Cookies', path: '/cookies' },
+            ].map(l => (
+              <Link key={l.label} to={l.path} className="font-mono-jet text-xs text-slate-600 hover:text-neon-cyan transition-colors">{l.label}</Link>
             ))}
           </div>
         </div>

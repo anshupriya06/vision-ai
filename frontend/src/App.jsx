@@ -23,6 +23,9 @@ import FeaturesPage from './pages/FeaturesPage';
 import HowItWorks from './pages/HowItWorks';
 import Pricing from './pages/Pricing';
 import AdminPanel from './pages/AdminPanel';
+import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
+import Cookies from './pages/Cookies';
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -57,11 +60,11 @@ const SharedRoutes = ({ currentUser }) => {
       <Route path="/community"     element={<StaticPage page="community" />} />
       <Route path="/guides"        element={<StaticPage page="guides" />} />
       <Route path="/partners"      element={<StaticPage page="partners" />} />
-      <Route path="/privacy"       element={<StaticPage page="privacy" />} />
-      <Route path="/terms"         element={<StaticPage page="terms" />} />
+      <Route path="/privacy"       element={<Privacy />} />
+      <Route path="/terms"         element={<Terms />} />
+      <Route path="/cookies"       element={<Cookies />} />
       <Route path="/security"      element={<StaticPage page="security" />} />
       <Route path="/compliance"    element={<StaticPage page="compliance" />} />
-      <Route path="/cookies"       element={<StaticPage page="cookies" />} />
       <Route path="/admin"         element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
       <Route path="/history"       element={<ProtectedRoute><History /></ProtectedRoute>} />
       <Route path="/profile"       element={<ProtectedRoute><Profile /></ProtectedRoute>} />
