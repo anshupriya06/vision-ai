@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import API_BASE from '../config/api';
 
-/* Emails that are considered admins — extend this list as needed */
+/* Client-side allowlist is a UX hint only. Real admin authorization is
+   enforced server-side (the backend returns 403 for non-admins). */
 const ADMIN_EMAILS = ['anshu@stellatone.com', 'admin@visionsafe.io'];
 
 const StatCard = ({ label, value, sub, color = 'text-neon-cyan' }) => (
@@ -26,22 +27,34 @@ const AdminPanel = () => {
   });
   const [activeTab, setActiveTab] = useState('overview');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [error, setError] = useState(null);
 
   const isAdmin = currentUser && ADMIN_EMAILS.includes(currentUser.email);
 
   useEffect(() => {
     if (!isAdmin) { navigate('/'); return; }
-    fetchAllVideos();
+    const controller = new AbortController();
+    fetchAllVideos(controller.signal);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
-  const fetchAllVideos = async () => {
+  const fetchAllVideos = async (signal) => {
     setLoading(true);
+    setError(null);
     try {
-      /* Fetch stats for a broad set — real admin endpoint would return all users.
-         We use the public /videos/history without email filter as a best-effort. */
-      const res = await axios.get(`${API_BASE}/videos/history`);
+      /* Admin feed: backend returns all users' videos for admins and 403 for
+         everyone else, so authorization is enforced server-side. */
+      const res = await axios.get(`${API_BASE}/videos/history`, { signal });
       setVideos(res.data.videos || []);
-    } catch {
+    } catch (err) {
+      if (axios.isCancel?.(err) || err?.name === 'CanceledError') return;
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        setError('You are not authorized to view this data.');
+      } else {
+        setError('Failed to load admin data. Please try again.');
+      }
       setVideos([]);
     } finally {
       setLoading(false);
@@ -62,7 +75,10 @@ const AdminPanel = () => {
       setVideos(prev => prev.filter(v => v.id !== videoId));
       setFlagged(prev => prev.filter(f => f !== videoId));
       setDeleteConfirm(null);
-    } catch { alert('Delete failed.'); }
+    } catch (err) {
+      const status = err?.response?.status;
+      alert(status === 401 || status === 403 ? 'Not authorized to delete this video.' : 'Delete failed.');
+    }
   };
 
   if (!isAdmin) return null;
@@ -113,10 +129,17 @@ const AdminPanel = () => {
             <h1 className="font-sora text-xl font-black text-white">SYSTEM CONTROL PANEL</h1>
             <p className="font-mono-jet text-xs text-slate-500 mt-1">{currentUser?.email}</p>
           </div>
-          <button onClick={fetchAllVideos} className="btn-cyber px-4 py-2 text-xs font-mono-jet tracking-widest">
+          <button onClick={() => fetchAllVideos()} className="btn-cyber px-4 py-2 text-xs font-mono-jet tracking-widest">
             <span>↻ REFRESH</span>
           </button>
         </div>
+
+        {/* Error banner */}
+        {error && (
+          <div className="glass-panel rounded-sm mb-6 px-5 py-3 border border-neon-red/30">
+            <p className="font-mono-jet text-xs text-neon-red">{error}</p>
+          </div>
+        )}
 
         {/* Tabs — horizontally scrollable on mobile */}
         <div className="mb-4 sm:mb-6">

@@ -27,13 +27,29 @@ def _pg_reachable(url: str) -> bool:
     except Exception:
         return False
 
+# Only allow the local SQLite fallback when explicitly permitted (dev convenience).
+# In production (ALLOW_SQLITE_FALLBACK unset/false) a transient Postgres outage
+# must NOT silently divert writes to a local file that never reaches Postgres.
+_allow_sqlite_fallback = os.getenv("ALLOW_SQLITE_FALLBACK", "true").lower() in ("1", "true", "yes")
+
 if _pg_reachable(_pg_url):
     DATABASE_URL = _pg_url
     _sqlite = False
-else:
+elif _allow_sqlite_fallback:
     _db_file = Path(__file__).parent / "visionsafe.db"
     DATABASE_URL = f"sqlite:///{_db_file}"
     _sqlite = True
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "Postgres unreachable — falling back to local SQLite (dev mode). "
+        "Data written here will NOT reach Postgres."
+    )
+else:
+    # Fail fast rather than silently diverge to a local DB.
+    raise RuntimeError(
+        f"Postgres at {_pg_url} is unreachable and ALLOW_SQLITE_FALLBACK is disabled. "
+        "Refusing to start with a divergent local SQLite database."
+    )
 
 import logging as _logging
 _logging.getLogger(__name__).info(f"Database: {DATABASE_URL}")
@@ -147,6 +163,11 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # Roll back any failed/aborted transaction so a pooled connection is
+        # never returned in a broken ("transaction is aborted") state.
+        db.rollback()
+        raise
     finally:
         db.close()
 

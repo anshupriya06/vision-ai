@@ -1,10 +1,9 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect, Depends, Header, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, WebSocket, WebSocketDisconnect, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import os
-import shutil
 from pathlib import Path
 import uuid
 import logging
@@ -61,9 +60,60 @@ def get_email_from_token(authorization: str | None) -> str:
         if not email:
             raise HTTPException(status_code=401, detail="Email not found in token")
         return email
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Token verification failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+# Admin allowlist (server-side authority). Configure via ADMIN_EMAILS env (comma-separated).
+ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in os.getenv("ADMIN_EMAILS", "anshu@stellatone.com,admin@visionsafe.io").split(",")
+    if e.strip()
+}
+
+
+def require_user(authorization: str | None = Header(default=None)) -> str:
+    """
+    FastAPI dependency: verify the Firebase Bearer token and return the
+    authenticated (normalized) email. Raises 401 if the token is missing/invalid.
+    This is the single source of identity for protected endpoints.
+    """
+    email = get_email_from_token(authorization)
+    return email.strip().lower()
+
+
+def require_admin(email: str = Depends(require_user)) -> str:
+    """FastAPI dependency: require an authenticated user who is in the admin allowlist."""
+    if email not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return email
+
+
+# Simple in-memory fixed-window rate limiter (per-key). Good enough to blunt
+# abuse of unauthenticated endpoints on a single instance; swap for Redis if
+# the app is ever scaled horizontally.
+from collections import defaultdict
+import time as _time
+import threading as _threading
+
+_rate_lock = _threading.Lock()
+_rate_hits: dict[str, list[float]] = defaultdict(list)
+
+
+def rate_limit(key: str, max_calls: int, window_seconds: int) -> bool:
+    """Return True if the call is allowed, False if the key is over its quota."""
+    now = _time.time()
+    with _rate_lock:
+        hits = [t for t in _rate_hits[key] if now - t < window_seconds]
+        if len(hits) >= max_calls:
+            _rate_hits[key] = hits
+            return False
+        hits.append(now)
+        _rate_hits[key] = hits
+        return True
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -95,6 +145,9 @@ UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("output")
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# Maximum allowed upload size (bytes). Configurable via MAX_UPLOAD_MB env.
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "200")) * 1024 * 1024
 
 # Mount output directory for serving processed videos
 app.mount("/output", StaticFiles(directory=OUTPUT_DIR), name="output")
@@ -187,57 +240,57 @@ async def root():
 
 @app.post("/upload-video")
 async def upload_video(
-    file: UploadFile = File(...), 
-    user_email: str = Form(default=None),
-    authorization: str | None = Header(default=None),
+    file: UploadFile = File(...),
+    user_email: str = Depends(require_user),
     db: Session = Depends(get_db)
 ):
     """
-    Upload and process video file with AI safety detection
-    
+    Upload and process video file with AI safety detection.
+    Requires a valid Firebase Bearer token; the video is owned by the
+    authenticated user.
+
     Returns:
         JSON response with video_url and safety status
     """
-    logger.info(f"Received video upload request: {file.filename}")
-    
-    try:
-        # Extract email from Bearer token if Authorization header is provided
-        if authorization and (not user_email or user_email == "anonymous"):
-            try:
-                user_email = get_email_from_token(authorization)
-                logger.info(f"Extracted email from token: {user_email}")
-            except HTTPException as e:
-                logger.warning(f"Token verification failed: {e.detail}")
-                # FALLBACK: If token fails but user_email was provided in form, use it
-                if not user_email or user_email == "anonymous":
-                    user_email = "anonymous"
-        
-        # Normalize email for consistent stats lookup
-        if user_email and user_email != "anonymous":
-            user_email = user_email.strip().lower()
-            logger.info(f"✅ Using email: {user_email}")
+    logger.info(f"Received video upload request from {user_email}: {file.filename}")
 
-        # Use provided email or default to anonymous
-        if not user_email:
-            user_email = "anonymous"
-        
-        # Validate file type
-        if not file.content_type.startswith("video/"):
+    try:
+        # Validate file type (content_type may be absent on some clients)
+        if not (file.content_type or "").startswith("video/"):
             logger.warning(f"Invalid file type: {file.content_type}")
             raise HTTPException(status_code=400, detail="File must be a video")
-        
+
         # Generate unique filename
-        file_extension = os.path.splitext(file.filename)[1]
+        file_extension = os.path.splitext(file.filename or "")[1]
         unique_filename = f"{uuid.uuid4()}{file_extension}"
         upload_path = UPLOAD_DIR / unique_filename
-        
+
         logger.info(f"Saving uploaded file to: {upload_path}")
-        
-        # Save uploaded file
-        with open(upload_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        file_size = os.path.getsize(upload_path)
+
+        # Stream the upload to disk while enforcing a hard size cap so a
+        # malicious or runaway client cannot fill the disk.
+        file_size = 0
+        try:
+            with open(upload_path, "wb") as buffer:
+                while True:
+                    chunk = await file.read(1024 * 1024)  # 1 MB chunks
+                    if not chunk:
+                        break
+                    file_size += len(chunk)
+                    if file_size > MAX_UPLOAD_BYTES:
+                        buffer.close()
+                        upload_path.unlink(missing_ok=True)
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File too large. Maximum size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+                        )
+                    buffer.write(chunk)
+        except HTTPException:
+            raise
+        except Exception:
+            upload_path.unlink(missing_ok=True)
+            raise
+
         logger.info(f"File saved successfully. Size: {file_size} bytes")
         
         # Generate output filename
@@ -276,7 +329,7 @@ async def upload_video(
                 video = VideoCRUD.create_video(
                     db=db,
                     filename=file.filename,
-                    user_email=user_email or "anonymous",
+                    user_email=user_email,
                     overall_status=result.get("status", "SAFE").upper(),  # Must be uppercase: SAFE or UNSAFE
                     upload_time=datetime.utcnow(),
                     processed_video_path=str(output_path),
@@ -358,9 +411,9 @@ async def upload_video(
             logger.error(f"AI processing failed: {str(ai_error)}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Video processing failed: {str(ai_error)}"
+                detail="Video processing failed"
             )
-    
+
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
@@ -368,7 +421,7 @@ async def upload_video(
         logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Internal server error: {str(e)}"
+            detail="Internal server error"
         )
 
 @app.get("/health")
@@ -389,18 +442,31 @@ class ContactPayload(BaseModel):
     subject: str
     message: str
 
+
+class SubscribePayload(BaseModel):
+    email: str
+
 @app.get("/videos/history")
-async def get_video_history(user_email: str = None, email: str = None, db: Session = Depends(get_db)):
-    """Get video processing history for a user"""
+async def get_video_history(
+    user_email: str = None,
+    email: str = None,
+    auth_email: str = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get video processing history. A user always sees only their own videos.
+    Admins may pass ?user_email=... to view another user's history, or omit it
+    to see the 100 most recent videos across all users.
+    """
     try:
-        if not user_email and email:
-            user_email = email
+        requested = (user_email or email or "").strip().lower()
+        is_admin = auth_email in ADMIN_EMAILS
 
-        if user_email:
-            user_email = user_email.strip().lower()
-
-        if user_email:
-            videos = VideoCRUD.get_videos_by_user(db, user_email)
+        if not is_admin:
+            # Non-admins are locked to their own history regardless of params.
+            videos = VideoCRUD.get_videos_by_user(db, auth_email)
+        elif requested:
+            videos = VideoCRUD.get_videos_by_user(db, requested)
         else:
             videos = db.query(Video).order_by(Video.upload_time.desc()).limit(100).all()
 
@@ -422,16 +488,25 @@ async def get_video_history(user_email: str = None, email: str = None, db: Sessi
                 for v in videos
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching video history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch video history")
 
 @app.get("/videos/stats")
-async def get_user_stats(user_email: str, db: Session = Depends(get_db)):
-    """Get safety statistics for a user"""
+async def get_user_stats(
+    user_email: str = None,
+    auth_email: str = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Get safety statistics. Users see their own stats; admins may query any user."""
     try:
-        user_email = user_email.strip().lower()
-        videos = VideoCRUD.get_videos_by_user(db, user_email)
+        requested = (user_email or "").strip().lower()
+        if requested and requested != auth_email and auth_email not in ADMIN_EMAILS:
+            raise HTTPException(status_code=403, detail="Cannot access another user's stats")
+        target_email = requested or auth_email
+        videos = VideoCRUD.get_videos_by_user(db, target_email)
 
         total_videos = len(videos)
         unsafe_count = len([v for v in videos if (v.overall_status or "").upper() == "UNSAFE"])
@@ -443,26 +518,40 @@ async def get_user_stats(user_email: str, db: Session = Depends(get_db)):
 
         return {
             "status": "success",
-            "user_email": user_email,
+            "user_email": target_email,
             "total_videos": total_videos,
             "safe_videos": safe_count,
             "unsafe_videos": unsafe_count,
             "average_confidence": round(avg_confidence, 3),
             "unsafe_percentage": round((unsafe_count / total_videos * 100) if total_videos > 0 else 0, 2)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching user stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch user stats")
+
+def _get_owned_video(db: Session, video_id: str, auth_email: str):
+    """Fetch a video and enforce that the caller owns it (or is an admin)."""
+    video = VideoCRUD.get_video(db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if video.user_email != auth_email and auth_email not in ADMIN_EMAILS:
+        # Don't reveal existence of other users' videos.
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
+
 
 @app.get("/videos/{video_id}")
-async def get_video_details(video_id: str, db: Session = Depends(get_db)):
-    """Get details for a specific video"""
+async def get_video_details(
+    video_id: str,
+    auth_email: str = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Get details for a specific video (owner or admin only)"""
     try:
-        video = VideoCRUD.get_video(db, video_id)
-        
-        if not video:
-            raise HTTPException(status_code=404, detail="Video not found")
-        
+        video = _get_owned_video(db, video_id, auth_email)
+
         return {
             "status": "success",
             "video": {
@@ -481,14 +570,20 @@ async def get_video_details(video_id: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Error fetching video details: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch video details")
 
 @app.get("/videos/{video_id}/detections")
-async def get_video_detections(video_id: str, db: Session = Depends(get_db)):
-    """Get all detections for a specific video"""
+async def get_video_detections(
+    video_id: str,
+    auth_email: str = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Get all detections for a specific video (owner or admin only)"""
     try:
+        # Enforce ownership before returning detection data.
+        _get_owned_video(db, video_id, auth_email)
         detections = DetectionCRUD.get_detections_by_video(db, video_id)
-        
+
         return {
             "status": "success",
             "count": len(detections),
@@ -505,27 +600,30 @@ async def get_video_detections(video_id: str, db: Session = Depends(get_db)):
                 for d in detections
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching detections: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch detections")
 
 @app.delete("/videos/{video_id}")
-async def delete_video(video_id: str, db: Session = Depends(get_db)):
-    """Delete a video and its detections"""
+async def delete_video(
+    video_id: str,
+    auth_email: str = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a video and its detections (owner or admin only)"""
     try:
-        video = VideoCRUD.get_video(db, video_id)
-        
-        if not video:
-            raise HTTPException(status_code=404, detail="Video not found")
-        
-        # Delete associated file
-        if os.path.exists(video.processed_video_path):
+        video = _get_owned_video(db, video_id, auth_email)
+
+        # Delete associated file (path may be NULL if processing never finished)
+        if video.processed_video_path and os.path.exists(video.processed_video_path):
             os.remove(video.processed_video_path)
             logger.info(f"Deleted file: {video.processed_video_path}")
-        
+
         # Delete from database (cascades to detections)
         VideoCRUD.delete_video(db, video_id)
-        
+
         return {
             "status": "success",
             "message": f"Video {video_id} deleted successfully"
@@ -534,25 +632,42 @@ async def delete_video(video_id: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Error deleting video: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to delete video")
 
 @app.post("/newsletter/subscribe")
-async def subscribe_newsletter(email: str, db: Session = Depends(get_db)):
+async def subscribe_newsletter(
+    payload: SubscribePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Subscribe email to newsletter with welcome email"""
     try:
+        email = payload.email.strip().lower()
+
         # Validate email format
         import re
         email_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
         if not re.match(email_regex, email):
             raise HTTPException(status_code=400, detail="Invalid email format")
-        
+
+        # Rate-limit by client IP to prevent using this unauthenticated endpoint
+        # as a welcome-email spam relay against arbitrary addresses.
+        client_ip = request.client.host if request.client else "unknown"
+        if not rate_limit(f"subscribe:{client_ip}", max_calls=5, window_seconds=3600):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many subscription attempts. Please try again later.",
+            )
+
         # Subscribe to database first (this must succeed)
         try:
             subscriber, is_new = NewsletterCRUD.subscribe(db, email)
             logger.info(f"✅ Database subscription successful for {email}")
+        except HTTPException:
+            raise
         except Exception as db_error:
             logger.error(f"❌ Database error: {db_error}")
-            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+            raise HTTPException(status_code=500, detail="Failed to save subscription")
         
         # Try to send welcome email (don't fail if this doesn't work)
         if is_new:
@@ -583,7 +698,7 @@ async def subscribe_newsletter(email: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         logger.error(f"Newsletter subscription error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Subscription error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Subscription failed")
 
 @app.get("/newsletter/unsubscribe")
 async def unsubscribe_newsletter(token: str, db: Session = Depends(get_db)):
@@ -607,22 +722,11 @@ async def unsubscribe_newsletter(token: str, db: Session = Depends(get_db)):
 
 @app.get("/user/profile")
 async def get_user_profile(
-    authorization: str | None = Header(default=None),
-    user_email: str | None = Header(default=None, alias="X-User-Email"),
+    email: str = Depends(require_user),
     db: Session = Depends(get_db)
 ):
-    """Get user profile using Firebase token"""
+    """Get the authenticated user's profile"""
     try:
-        email = None
-        if authorization:
-            try:
-                email = get_email_from_token(authorization)
-            except HTTPException:
-                email = None
-        if not email and user_email:
-            email = user_email.strip().lower()
-        if not email:
-            raise HTTPException(status_code=401, detail="Authorization required")
         profile = UserProfileCRUD.ensure_profile(db, email)
 
         return {
@@ -638,28 +742,17 @@ async def get_user_profile(
         raise
     except Exception as e:
         logger.error(f"Error fetching user profile: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch user profile")
 
 
 @app.post("/user/update-profile")
 async def update_user_profile(
     payload: UpdateProfilePayload,
-    authorization: str | None = Header(default=None),
-    user_email: str | None = Header(default=None, alias="X-User-Email"),
+    email: str = Depends(require_user),
     db: Session = Depends(get_db)
 ):
-    """Update user profile using Firebase token"""
+    """Update the authenticated user's profile"""
     try:
-        email = None
-        if authorization:
-            try:
-                email = get_email_from_token(authorization)
-            except HTTPException:
-                email = None
-        if not email and user_email:
-            email = user_email.strip().lower()
-        if not email:
-            raise HTTPException(status_code=401, detail="Authorization required")
         UserProfileCRUD.ensure_profile(db, email)
         profile = UserProfileCRUD.upsert_profile(
             db,
@@ -681,7 +774,7 @@ async def update_user_profile(
         raise
     except Exception as e:
         logger.error(f"Error saving user profile: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to save user profile")
 
 
 @app.post("/contact")

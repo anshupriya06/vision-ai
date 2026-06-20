@@ -14,7 +14,7 @@ const Footer = () => {
     if (!email || !emailRegex.test(email)) { setStatus('error'); setMessage('Invalid email address'); setTimeout(() => { setStatus('idle'); setMessage(''); }, 3000); return; }
     setStatus('loading');
     try {
-      const r = await axios.post(`${API_BASE}/newsletter/subscribe`, null, { params: { email } });
+      const r = await axios.post(`${API_BASE}/newsletter/subscribe`, { email });
       setStatus('success'); setMessage(r.data.message || 'Subscribed successfully'); setEmail('');
       setTimeout(() => { setStatus('idle'); setMessage(''); }, 5000);
     } catch (err) {

@@ -5,18 +5,29 @@ const AlertNotifications = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const wsRef = useRef(null);
+  const reconnectRef = useRef(null);
+  const isUnmountedRef = useRef(false);
 
   useEffect(() => {
+    isUnmountedRef.current = false;
     connectWebSocket();
-    return () => { if (wsRef.current) wsRef.current.close(); };
+    return () => {
+      // Mark unmounted FIRST so the ws.onclose handler does not schedule a reconnect.
+      isUnmountedRef.current = true;
+      if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const connectWebSocket = () => {
+    if (isUnmountedRef.current) return;
     try {
       setConnectionStatus('Connecting...');
       const ws = new WebSocket('ws://localhost:8000/ws/alerts');
-      ws.onopen = () => { setIsConnected(true); setConnectionStatus('Connected'); };
+      ws.onopen = () => { if (!isUnmountedRef.current) { setIsConnected(true); setConnectionStatus('Connected'); } };
       ws.onmessage = (event) => {
+        if (isUnmountedRef.current) return;
         const data = JSON.parse(event.data);
         if (data.type === 'alert') {
           const newAlert = { id: Date.now(), type: data.alert_type, message: data.message, timestamp: new Date(data.timestamp).toLocaleTimeString(), data: data.data };
@@ -24,10 +35,16 @@ const AlertNotifications = () => {
           setTimeout(() => setAlerts(prev => prev.filter(a => a.id !== newAlert.id)), 10000);
         }
       };
-      ws.onerror = () => setConnectionStatus('Error');
-      ws.onclose = () => { setIsConnected(false); setConnectionStatus('Disconnected'); setTimeout(connectWebSocket, 5000); };
+      ws.onerror = () => { if (!isUnmountedRef.current) setConnectionStatus('Error'); };
+      ws.onclose = () => {
+        if (isUnmountedRef.current) return;
+        setIsConnected(false);
+        setConnectionStatus('Disconnected');
+        // Schedule a tracked reconnect so it can be cancelled on unmount.
+        reconnectRef.current = setTimeout(connectWebSocket, 5000);
+      };
       wsRef.current = ws;
-    } catch { setConnectionStatus('Failed'); }
+    } catch { if (!isUnmountedRef.current) setConnectionStatus('Failed'); }
   };
 
   const getAlertConfig = (type) => ({

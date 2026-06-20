@@ -33,12 +33,19 @@ const ScrollToTop = () => {
   return null;
 };
 
+/* Client-side allowlist is a UX gate only; the backend enforces admin
+   authorization (returns 403 for non-admins). */
 const ADMIN_EMAILS = ['anshu@stellatone.com', 'admin@visionsafe.io'];
 
 /* All routes shared between logged-in and logged-out layouts */
 const SharedRoutes = ({ currentUser }) => {
   const ProtectedRoute = ({ children }) =>
     currentUser ? children : <Navigate to="/" replace />;
+
+  const AdminRoute = ({ children }) =>
+    currentUser && ADMIN_EMAILS.includes(currentUser.email)
+      ? children
+      : <Navigate to="/" replace />;
 
   const Home = () => currentUser ? <Dashboard /> : <><Hero /><Features /></>;
 
@@ -65,7 +72,7 @@ const SharedRoutes = ({ currentUser }) => {
       <Route path="/cookies"       element={<Cookies />} />
       <Route path="/security"      element={<StaticPage page="security" />} />
       <Route path="/compliance"    element={<StaticPage page="compliance" />} />
-      <Route path="/admin"         element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+      <Route path="/admin"         element={<AdminRoute><AdminPanel /></AdminRoute>} />
       <Route path="/history"       element={<ProtectedRoute><History /></ProtectedRoute>} />
       <Route path="/profile"       element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       <Route path="/profile/edit"  element={<ProtectedRoute><EditProfile /></ProtectedRoute>} />

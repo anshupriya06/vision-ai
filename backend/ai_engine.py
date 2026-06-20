@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -13,6 +14,9 @@ yolo_model = None
 pose_clf = None
 pose_scaler = None
 pose_feature_cols = None
+
+# Guards lazy model loading so concurrent requests don't race on the globals.
+_model_lock = threading.Lock()
 
 VEHICLE_CLASSES = {
     1: "Bicycle",
@@ -234,6 +238,11 @@ class BoundingBoxTracker:
 
 
 def process_video(input_path: str, output_path: str) -> dict:
+    # Resources that must always be released, even on error (declared up front
+    # so the finally block can reference them no matter where we fail).
+    cap = None
+    out = None
+    pose_landmarker = None
     try:
         logger.info(f"Starting video processing: {input_path}")
 
@@ -241,9 +250,12 @@ def process_video(input_path: str, output_path: str) -> dict:
             raise FileNotFoundError(f"Input video not found: {input_path}")
 
         if yolo_model is None:
-            success = load_models()
-            if not success or yolo_model is None:
-                raise RuntimeError("YOLO model could not be loaded. Check your internet connection or model path.")
+            # Double-checked locking: only one thread loads the shared models.
+            with _model_lock:
+                if yolo_model is None:
+                    success = load_models()
+                    if not success or yolo_model is None:
+                        raise RuntimeError("YOLO model could not be loaded. Check your internet connection or model path.")
 
         import cv2
         import numpy as np
@@ -274,6 +286,11 @@ def process_video(input_path: str, output_path: str) -> dict:
         height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+        # Some containers report 0x0 dimensions; the VideoWriter would silently
+        # drop every frame, producing an empty output. Fail loudly instead.
+        if width <= 0 or height <= 0:
+            raise RuntimeError(f"Invalid video dimensions {width}x{height}; cannot process file")
+
         # Process every Nth frame; draw cached results on skipped frames
         # Target ~8 AI inferences/sec regardless of source fps
         PROCESS_EVERY = max(1, int(round(fps / 8)))
@@ -283,6 +300,8 @@ def process_video(input_path: str, output_path: str) -> dict:
         if not out.isOpened():
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if not out.isOpened():
+            raise RuntimeError("Could not open VideoWriter for output file")
 
         detected_activities = []
         unsafe_events       = []
@@ -416,10 +435,6 @@ def process_video(input_path: str, output_path: str) -> dict:
 
             out.write(frame)
 
-        cap.release()
-        out.release()
-        pose_landmarker.close()
-
         unsafe_pct     = (unsafe_frame_count / processed_frames * 100) if processed_frames else 0
         overall_status = "UNSAFE" if unsafe_pct > 10 else "SAFE"
         confidence     = round(1.0 - unsafe_pct / 100.0, 2)
@@ -443,3 +458,21 @@ def process_video(input_path: str, output_path: str) -> dict:
     except Exception as e:
         logger.error(f"Video processing error: {e}")
         raise Exception(f"Video processing failed: {e}")
+
+    finally:
+        # Always release native resources, even if processing failed midway.
+        try:
+            if cap is not None:
+                cap.release()
+        except Exception:
+            pass
+        try:
+            if out is not None:
+                out.release()
+        except Exception:
+            pass
+        try:
+            if pose_landmarker is not None:
+                pose_landmarker.close()
+        except Exception:
+            pass

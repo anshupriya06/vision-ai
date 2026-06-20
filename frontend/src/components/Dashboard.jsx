@@ -574,7 +574,7 @@ const Dashboard = () => {
                 { label: 'Total Analysed', value: quickStats?.total_videos ?? 0,  color: 'text-neon-cyan'  },
                 { label: 'Safe',           value: quickStats?.safe_videos ?? 0,   color: 'text-neon-green' },
                 { label: 'Unsafe',         value: quickStats ? (quickStats.total_videos - quickStats.safe_videos) : 0, color: 'text-neon-red' },
-                { label: 'Avg Confidence', value: quickStats ? `${(quickStats.average_confidence * 100).toFixed(0)}%` : '—', color: 'text-slate-300' },
+                { label: 'Avg Confidence', value: quickStats?.average_confidence != null ? `${(quickStats.average_confidence * 100).toFixed(0)}%` : '—', color: 'text-slate-300' },
               ].map(s => (
                 <div key={s.label} className="glass-panel border border-white/8 rounded-xl p-4 text-center">
                   <p className={`font-sora text-2xl font-extrabold ${s.color}`}>{s.value}</p>
@@ -751,7 +751,7 @@ const Dashboard = () => {
                 {[
                   { label: 'Total Uploaded',  value: quickStats?.total_videos ?? 0,  color: 'text-neon-cyan'  },
                   { label: 'Safe Videos',     value: quickStats?.safe_videos ?? 0,   color: 'text-neon-green' },
-                  { label: 'Avg Confidence',  value: quickStats ? `${(quickStats.average_confidence * 100).toFixed(1)}%` : '—', color: 'text-slate-300' },
+                  { label: 'Avg Confidence',  value: quickStats?.average_confidence != null ? `${(quickStats.average_confidence * 100).toFixed(1)}%` : '—', color: 'text-slate-300' },
                 ].map(s => (
                   <div key={s.label} className="p-4 text-center">
                     <p className={`font-sora text-xl font-extrabold ${s.color}`}>{s.value}</p>

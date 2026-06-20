@@ -12,19 +12,23 @@ export default function VideoHistory() {
   const [showDetections, setShowDetections] = useState(false);
 
   useEffect(() => {
-    if (currentUser) {
-      fetchVideoHistory();
-    }
+    if (!currentUser) return;
+    const controller = new AbortController();
+    fetchVideoHistory(controller.signal);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  const fetchVideoHistory = async () => {
+  const fetchVideoHistory = async (signal) => {
     try {
       setLoading(true);
       const response = await axios.get(`${API_BASE}/videos/history`, {
-        params: { email: currentUser?.email }
+        params: { email: currentUser?.email },
+        signal,
       });
       setVideos(response.data.videos || []);
     } catch (error) {
+      if (axios.isCancel?.(error) || error?.name === 'CanceledError') return;
       console.error('Error fetching video history:', error);
     } finally {
       setLoading(false);
@@ -104,7 +108,7 @@ export default function VideoHistory() {
                             {new Date(video.upload_time).toLocaleDateString()}
                           </span>
                           <span className={getStatusColor(video.overall_status)}>
-                            {video.overall_status.toUpperCase()}
+                            {(video.overall_status || 'UNKNOWN').toUpperCase()}
                           </span>
                           <span className="text-slate-400">
                             {video.overall_status?.toUpperCase() === 'SAFE'
@@ -145,13 +149,15 @@ export default function VideoHistory() {
                   <div>
                     <p className="text-slate-400 text-sm">Status</p>
                     <p className={`font-semibold ${getStatusColor(selectedVideo.overall_status)}`}>
-                      {selectedVideo.overall_status.toUpperCase()}
+                      {(selectedVideo.overall_status || 'UNKNOWN').toUpperCase()}
                     </p>
                   </div>
                   <div>
                     <p className="text-slate-400 text-sm">Confidence</p>
                     <p className="text-white">
-                      {(selectedVideo.confidence * 100).toFixed(2)}%
+                      {selectedVideo.confidence != null
+                        ? `${(selectedVideo.confidence * 100).toFixed(2)}%`
+                        : '—'}
                     </p>
                   </div>
                   <div>
@@ -174,7 +180,9 @@ export default function VideoHistory() {
                   <div>
                     <p className="text-slate-400 text-sm">Duration</p>
                     <p className="text-white">
-                      {selectedVideo.duration_seconds.toFixed(2)}s
+                      {selectedVideo.duration_seconds != null
+                        ? `${selectedVideo.duration_seconds.toFixed(2)}s`
+                        : '—'}
                     </p>
                   </div>
                 </div>

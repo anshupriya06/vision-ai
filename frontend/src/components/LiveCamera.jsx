@@ -56,7 +56,9 @@ const LiveCamera = () => {
   };
 
   const stopCamera = useCallback(() => {
-    stopAnalysis();
+    // Stop the analysis timer directly (no dependency on stopAnalysis ordering).
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    setIsAnalyzing(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -86,14 +88,9 @@ const LiveCamera = () => {
 
       const formData = new FormData();
       formData.append('file', blob, `snapshot-${Date.now()}.jpg`);
-      formData.append('user_email', currentUser?.email || 'anonymous');
 
-      let token = null;
-      if (currentUser) { try { token = await currentUser.getIdToken(); } catch {} }
-      const headers = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const res = await axios.post(`${API_BASE}/upload-video`, formData, { headers, timeout: 30000 });
+      // Auth token is attached automatically by the global axios interceptor.
+      const res = await axios.post(`${API_BASE}/upload-video`, formData, { timeout: 30000 });
 
       const result = {
         id: Date.now(),
@@ -104,7 +101,14 @@ const LiveCamera = () => {
       };
 
       setLiveStatus(result.status);
-      setSnapshots(prev => [result, ...prev].slice(0, 12));
+      setSnapshots(prev => {
+        const next = [result, ...prev];
+        // Revoke object URLs for snapshots evicted past the 12-item cap to
+        // avoid leaking decoded JPEG blobs for the life of the page.
+        const evicted = next.slice(12);
+        evicted.forEach(s => { if (s.thumbnail) URL.revokeObjectURL(s.thumbnail); });
+        return next.slice(0, 12);
+      });
       setStats(prev => ({
         total: prev.total + 1,
         safe: prev.safe + (result.status === 'SAFE' ? 1 : 0),
@@ -115,19 +119,37 @@ const LiveCamera = () => {
     }
   };
 
-  const startAnalysis = () => {
-    if (intervalRef.current) return;
-    setIsAnalyzing(true);
-    analyzeFrame(); // immediate first capture
-    intervalRef.current = setInterval(analyzeFrame, captureInterval * 1000);
-  };
+  // Keep a ref to the latest analyzeFrame so the interval always calls the
+  // current closure (fresh cameraActive/currentUser) without re-creating timers.
+  const analyzeFrameRef = useRef(analyzeFrame);
+  analyzeFrameRef.current = analyzeFrame;
 
-  const stopAnalysis = () => {
+  // Single owner of the capture interval. Re-runs when analysis toggles or the
+  // interval changes; the cleanup guarantees only one timer is ever active.
+  useEffect(() => {
+    if (!isAnalyzing) return;
+    analyzeFrameRef.current(); // immediate first capture
+    intervalRef.current = setInterval(() => analyzeFrameRef.current(), captureInterval * 1000);
+    return () => {
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    };
+  }, [isAnalyzing, captureInterval]);
+
+  const startAnalysis = () => setIsAnalyzing(true);
+
+  const stopAnalysis = useCallback(() => {
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     setIsAnalyzing(false);
-  };
+  }, []);
 
-  const clearSnapshots = () => { setSnapshots([]); setStats({ total: 0, safe: 0, unsafe: 0 }); setLiveStatus(null); };
+  const clearSnapshots = () => {
+    setSnapshots(prev => {
+      prev.forEach(s => { if (s.thumbnail) URL.revokeObjectURL(s.thumbnail); });
+      return [];
+    });
+    setStats({ total: 0, safe: 0, unsafe: 0 });
+    setLiveStatus(null);
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -281,7 +303,7 @@ const LiveCamera = () => {
               <input
                 type="range" min={2} max={30} step={1}
                 value={captureInterval}
-                onChange={e => { const v = Number(e.target.value); setCaptureInterval(v); if (isAnalyzing) { stopAnalysis(); setTimeout(() => { intervalRef.current = setInterval(analyzeFrame, v * 1000); setIsAnalyzing(true); }, 100); } }}
+                onChange={e => setCaptureInterval(Number(e.target.value))}
                 className="confidence-range"
                 style={{ '--val': `${((captureInterval - 2) / 28) * 100}%` }}
               />
