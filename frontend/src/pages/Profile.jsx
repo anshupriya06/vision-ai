@@ -9,243 +9,142 @@ const Profile = () => {
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [profile, setProfile] = useState({
-    displayName: '',
-    photoURL: '',
-    mobileNumber: '',
-    bio: ''
-  });
+  const [profile, setProfile] = useState({ displayName: '', photoURL: '', mobileNumber: '', bio: '' });
 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        if (!currentUser?.email) {
-          setLoading(false);
-          return;
-        }
-        const response = await fetch(`${API_BASE}/videos/history?email=${currentUser.email}`);
-        if (!response.ok) {
-          throw new Error('Failed to load video history');
-        }
-        const data = await response.json();
-        setVideos(data.videos || []);
-      } catch (err) {
-        setError(err.message || 'Failed to load data');
-      } finally {
-        setLoading(false);
-      }
+        if (!currentUser?.email) { setLoading(false); return; }
+        const r = await fetch(`${API_BASE}/videos/history?email=${currentUser.email}`);
+        if (!r.ok) throw new Error('Failed to load history');
+        const d = await r.json();
+        setVideos(d.videos || []);
+      } catch (err) { setError(err.message); }
+      finally { setLoading(false); }
     };
-
     fetchHistory();
   }, [currentUser?.email]);
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        if (!currentUser?.email) {
-          setProfileLoading(false);
-          return;
-        }
+        if (!currentUser?.email) return;
         const token = await currentUser.getIdToken();
-        const response = await fetch(`${API_BASE}/user/profile`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'X-User-Email': currentUser.email
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const profileData = data.profile || {};
-          setProfile({
-            displayName: currentUser.displayName || '',
-            photoURL: currentUser.photoURL || '',
-            mobileNumber: profileData.mobile_number || '',
-            bio: profileData.bio || ''
-          });
-        } else {
-          setProfile({
-            displayName: currentUser.displayName || '',
-            photoURL: currentUser.photoURL || '',
-            mobileNumber: '',
-            bio: ''
-          });
-        }
-      } catch (err) {
-        setError('Failed to load profile details');
-        setProfile({
-          displayName: currentUser?.displayName || '',
-          photoURL: currentUser?.photoURL || '',
-          mobileNumber: '',
-          bio: ''
-        });
-      } finally {
-        setProfileLoading(false);
-      }
+        const r = await fetch(`${API_BASE}/user/profile`, { headers: { Authorization: `Bearer ${token}`, 'X-User-Email': currentUser.email } });
+        const base = { displayName: currentUser.displayName || '', photoURL: currentUser.photoURL || '', mobileNumber: '', bio: '' };
+        if (r.ok) { const d = await r.json(); setProfile({ ...base, mobileNumber: d.profile?.mobile_number || '', bio: d.profile?.bio || '' }); }
+        else setProfile(base);
+      } catch { setProfile({ displayName: currentUser?.displayName || '', photoURL: currentUser?.photoURL || '', mobileNumber: '', bio: '' }); }
     };
-
     fetchProfile();
   }, [currentUser?.displayName, currentUser?.photoURL, currentUser?.email]);
 
   const stats = useMemo(() => {
     const total = videos.length;
-    const safe = videos.filter((v) => v.overall_status === 'SAFE').length;
-    const unsafe = videos.filter((v) => v.overall_status === 'UNSAFE').length;
-    const lastUpload = videos
-      .map((v) => v.upload_time)
-      .filter(Boolean)
-      .sort((a, b) => new Date(b) - new Date(a))[0];
-
-    return {
-      total,
-      safe,
-      unsafe,
-      lastUpload,
-    };
+    const safe = videos.filter(v => v.overall_status === 'SAFE').length;
+    const unsafe = videos.filter(v => v.overall_status === 'UNSAFE').length;
+    const lastUpload = videos.map(v => v.upload_time).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0];
+    return { total, safe, unsafe, lastUpload };
   }, [videos]);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (err) {
-      setError('Logout failed. Please try again.');
-    }
-  };
-
-  const handleEditNavigate = () => {
-    navigate('/profile/edit');
-  };
-
   return (
-    <section id="profile" className="py-20 px-4 sm:px-6 lg:px-8 min-h-screen">
-      <div className="max-w-7xl mx-auto">
+    <section className="pt-20 pb-16 px-4 sm:px-6 lg:px-8 min-h-screen cyber-grid">
+      <div className="max-w-5xl mx-auto">
+
         {/* Header */}
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-10">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-4xl sm:text-5xl font-bold text-gradient">Profile</h1>
-            <p className="text-gray-400 mt-2">Manage your account and review your activity</p>
+            <h1 className="font-sora text-2xl font-black text-white tracking-wider">OPERATOR <span className="text-neon-cyan">PROFILE</span></h1>
+            <p className="font-mono-jet text-xs text-slate-500 tracking-wide mt-1">IDENTITY MANAGEMENT SYSTEM</p>
           </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handleEditNavigate}
-              className="px-5 py-3 bg-slate-800 border border-accent/30 text-white font-semibold rounded-xl hover:bg-slate-700 hover:border-accent transition-all"
-            >
-              Edit Profile
-            </button>
-            <button onClick={handleLogout} className="px-5 py-3 bg-unsafe/20 border border-unsafe/50 text-unsafe font-semibold rounded-xl hover:bg-unsafe/30 transition-all">
-              Logout
-            </button>
+          <div className="flex gap-3">
+            <button onClick={() => navigate('/profile/edit')} className="btn-cyber px-5 py-2 text-xs font-mono-jet tracking-widest"><span>EDIT PROFILE</span></button>
+            <button onClick={async () => { try { await logout(); } catch { setError('Logout failed.'); } }} className="btn-danger px-5 py-2 text-xs font-mono-jet tracking-widest">LOGOUT</button>
           </div>
         </div>
 
-        {/* Profile Card */}
-        <div className="glassmorphism p-8 rounded-2xl mb-10 transition-all hover:shadow-xl hover:shadow-accent/10">
+        {/* Identity card */}
+        <div className="glass-panel hud-frame rounded-sm p-6 mb-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-            <div className="relative">
-              <div className="absolute inset-0 bg-accent rounded-full blur opacity-30"></div>
+            <div className="relative flex-shrink-0">
+              <div className="absolute inset-0 rounded-sm bg-neon-cyan/10 animate-glow-pulse" />
               {profile.photoURL ? (
-                <img
-                  src={profile.photoURL}
-                  alt={profile.displayName || 'User'}
-                  className="relative w-24 h-24 rounded-full border-2 border-accent object-cover"
-                />
+                <img src={profile.photoURL} alt="" className="relative w-20 h-20 rounded-sm ring-2 ring-neon-cyan object-cover" />
               ) : (
-                <div className="relative w-24 h-24 rounded-full border-2 border-accent bg-accent/20 flex items-center justify-center text-white text-2xl font-bold">
+                <div className="relative w-20 h-20 rounded-sm ring-2 ring-neon-cyan bg-cyber-navy flex items-center justify-center font-sora text-2xl font-black text-neon-cyan">
                   {(profile.displayName || currentUser?.email || 'U').charAt(0).toUpperCase()}
                 </div>
               )}
             </div>
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold text-white">
-                {profile.displayName || 'VisionSafe User'}
-              </h2>
-              <p className="text-gray-400">{currentUser?.email || 'user@visionsafe.io'}</p>
-              <div className="flex flex-wrap gap-2">
-                <span className="px-3 py-1 rounded-full text-sm bg-accent/20 text-accent border border-accent/40">Active</span>
-                <span className="px-3 py-1 rounded-full text-sm bg-white/10 text-gray-300 border border-white/10">Verified</span>
+            <div className="space-y-1">
+              <h2 className="font-sora text-xl font-bold text-white">{profile.displayName || 'OPERATOR'}</h2>
+              <p className="font-mono-jet text-sm text-neon-cyan">{currentUser?.email}</p>
+              <div className="flex gap-2 mt-2">
+                <span className="badge-safe">ACTIVE</span>
+                <span className="font-mono-jet text-xs text-slate-500 border border-slate-700 px-2 py-0.5 rounded-sm">VERIFIED</span>
               </div>
             </div>
           </div>
-          <div className="mt-6 grid sm:grid-cols-2 gap-4">
-            <div className="glassmorphism p-4 rounded-xl">
-              <p className="text-gray-400 text-sm mb-1">Email</p>
-              <p className="text-white font-semibold">{currentUser?.email || 'user@visionsafe.io'}</p>
+
+          <div className="mt-6 grid sm:grid-cols-2 gap-3">
+            {[
+              { label: 'EMAIL', value: currentUser?.email || '—' },
+              { label: 'MOBILE', value: profile.mobileNumber || 'NOT SET' },
+            ].map((f, i) => (
+              <div key={i} className="bg-cyber-black/50 border border-neon-cyan/10 rounded-sm p-3">
+                <p className="font-mono-jet text-xs text-slate-500 tracking-widest mb-1">{f.label}</p>
+                <p className="font-mono-jet text-sm text-white">{f.value}</p>
+              </div>
+            ))}
+            <div className="sm:col-span-2 bg-cyber-black/50 border border-neon-cyan/10 rounded-sm p-3">
+              <p className="font-mono-jet text-xs text-slate-500 tracking-widest mb-1">BIO</p>
+              <p className="font-mono-jet text-sm text-white">{profile.bio || 'No bio configured.'}</p>
             </div>
-            <div className="glassmorphism p-4 rounded-xl">
-              <p className="text-gray-400 text-sm mb-1">Mobile Number</p>
-              <p className="text-white font-semibold">{profile.mobileNumber || 'Not set'}</p>
-            </div>
-          </div>
-          <div className="mt-4 glassmorphism p-4 rounded-xl">
-            <p className="text-gray-400 text-sm mb-1">Bio</p>
-            <p className="text-white font-semibold">{profile.bio || 'Add a short bio from your profile settings.'}</p>
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          <div className="glassmorphism p-6 rounded-xl transition-all hover:scale-[1.02]">
-            <p className="text-gray-400 mb-2">Total Videos</p>
-            <p className="text-3xl font-bold text-white">{stats.total}</p>
-          </div>
-          <div className="glassmorphism p-6 rounded-xl transition-all hover:scale-[1.02]">
-            <p className="text-gray-400 mb-2">Safe Events</p>
-            <p className="text-3xl font-bold text-safe">{stats.safe}</p>
-          </div>
-          <div className="glassmorphism p-6 rounded-xl transition-all hover:scale-[1.02]">
-            <p className="text-gray-400 mb-2">Unsafe Events</p>
-            <p className="text-3xl font-bold text-unsafe">{stats.unsafe}</p>
-          </div>
-          <div className="glassmorphism p-6 rounded-xl transition-all hover:scale-[1.02]">
-            <p className="text-gray-400 mb-2">Last Upload</p>
-            <p className="text-lg font-semibold text-white">
-              {stats.lastUpload ? new Date(stats.lastUpload).toLocaleString() : 'No uploads yet'}
-            </p>
-          </div>
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: 'TOTAL FEEDS', value: stats.total, color: 'text-neon-cyan' },
+            { label: 'SAFE', value: stats.safe, color: 'text-neon-green' },
+            { label: 'UNSAFE', value: stats.unsafe, color: 'text-neon-red' },
+            { label: 'LAST UPLOAD', value: stats.lastUpload ? new Date(stats.lastUpload).toLocaleDateString() : '—', color: 'text-slate-300' },
+          ].map((s, i) => (
+            <div key={i} className="glass-panel rounded-sm p-4 hover:border-neon-cyan/30 transition-all">
+              <p className="font-mono-jet text-xs text-slate-500 tracking-widest mb-2">{s.label}</p>
+              <p className={`font-sora text-2xl font-black ${s.color}`}>{s.value}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Activity Timeline */}
-        <div className="glassmorphism p-6 rounded-2xl mb-12">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-2xl font-bold text-white">Recent Activity</h3>
+        {/* Activity */}
+        <div className="glass-panel rounded-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-neon-cyan/10 flex items-center justify-between">
+            <span className="font-sora text-xs text-neon-cyan tracking-widest">RECENT ACTIVITY LOG</span>
           </div>
-
-          {loading ? (
-            <div className="text-center py-12 text-gray-400">Loading activity...</div>
-          ) : error ? (
-            <div className="text-center py-12 text-unsafe">{error}</div>
-          ) : videos.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">No recent activity.</div>
-          ) : (
-            <div className="space-y-6">
-              {videos.slice(0, 6).map((video) => (
-                <div key={video.id} className="flex items-start gap-4">
-                  <div className="mt-1 w-3 h-3 rounded-full bg-accent shadow-[0_0_12px_rgba(56,189,248,0.6)]"></div>
-                  <div className="flex-1 glassmorphism p-4 rounded-xl">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-white font-semibold">{video.filename}</p>
-                        <p className="text-gray-400 text-sm">
-                          {video.upload_time ? new Date(video.upload_time).toLocaleString() : 'N/A'}
-                        </p>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        video.overall_status === 'SAFE'
-                          ? 'bg-safe/20 text-safe border border-safe/40'
-                          : 'bg-unsafe/20 text-unsafe border border-unsafe/40'
-                      }`}>
-                        {video.overall_status}
-                      </span>
+          <div className="p-4">
+            {loading ? (
+              <p className="font-mono-jet text-xs text-slate-500 text-center py-8 tracking-wide">LOADING LOG...</p>
+            ) : error ? (
+              <p className="font-mono-jet text-xs text-neon-red text-center py-8">{error}</p>
+            ) : videos.length === 0 ? (
+              <p className="font-mono-jet text-xs text-slate-500 text-center py-8 tracking-wide">NO ACTIVITY RECORDED</p>
+            ) : (
+              <div className="space-y-2">
+                {videos.slice(0, 6).map(video => (
+                  <div key={video.id} className="flex items-center gap-4 p-3 bg-cyber-black/40 border border-neon-cyan/5 rounded-sm hover:border-neon-cyan/20 transition-all">
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${video.overall_status === 'SAFE' ? 'bg-neon-green' : 'bg-neon-red'} animate-pulse`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-mono-jet text-xs text-white truncate">{video.filename}</p>
+                      <p className="font-mono-jet text-xs text-slate-600">{video.upload_time ? new Date(video.upload_time).toLocaleString() : 'N/A'}</p>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-300">
-                      <span>Confidence: {typeof video.confidence === 'number' ? `${(video.confidence * 100).toFixed(1)}%` : 'N/A'}</span>
-                      <span>Duration: {Math.round(video.duration_seconds || 0)}s</span>
-                    </div>
+                    <span className={video.overall_status === 'SAFE' ? 'badge-safe' : 'badge-unsafe'}>{video.overall_status}</span>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </section>

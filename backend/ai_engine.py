@@ -1,400 +1,445 @@
 import os
 import sys
 import logging
+import urllib.request
 from pathlib import Path
 
-# Add model directory to path
-_backend_model_dir = Path(__file__).parent / "model"
-_repo_model_dir = Path(__file__).parent.parent / "model"
-MODEL_DIR = _backend_model_dir if _backend_model_dir.exists() else _repo_model_dir
-sys.path.insert(0, str(MODEL_DIR))
-
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-scaler = None
-feature_cols = None
+MODEL_DIR = Path(__file__).parent / "model"
+
+yolo_model = None
+pose_clf = None
+pose_scaler = None
+pose_feature_cols = None
+
+VEHICLE_CLASSES = {
+    1: "Bicycle",
+    2: "Car",
+    3: "Motorcycle",
+    5: "Bus",
+    7: "Truck",
+}
+
+SAFE_ACTIVITIES = {"Walking", "Running", "Standing", "Standing Still", "Sitting", "Sit Down", "Yoga"}
+
 
 def load_models():
-    """Load YOLOv8 and pose classification models"""
-    global yolo_model, pose_model, scaler, feature_cols
-    
+    global yolo_model, pose_clf, pose_scaler, pose_feature_cols
     try:
-        logger.info("Loading AI models...")
-        
         import joblib
         from ultralytics import YOLO
-        
-        # Load YOLO model
+
+        # YOLO
         yolo_path = MODEL_DIR / "yolov8n.pt"
         if yolo_path.exists():
             yolo_model = YOLO(str(yolo_path))
             logger.info(f"✓ Loaded YOLOv8 from {yolo_path}")
         else:
-            logger.warning(f"YOLOv8 model not found at {yolo_path}, attempting auto-download")
-            try:
-                yolo_model = YOLO("yolov8n.pt")
-                logger.info("✓ Downloaded YOLOv8 weights")
-            except Exception as download_error:
-                logger.error(f"Failed to download YOLOv8 weights: {download_error}")
-            
-        # Load pose classification model
-        pose_model_path = MODEL_DIR / "models" / "pose_activity_model.pkl"
+            logger.info("Downloading YOLOv8n weights...")
+            yolo_model = YOLO("yolov8n.pt")
+            logger.info("✓ Downloaded YOLOv8n weights")
+
+        # Pose activity classifier (trained pkl)
+        clf_path  = MODEL_DIR / "models" / "pose_activity_model.pkl"
         scaler_path = MODEL_DIR / "models" / "pose_scaler.pkl"
-        features_path = MODEL_DIR / "models" / "pose_feature_cols.pkl"
-        
-        if pose_model_path.exists() and scaler_path.exists() and features_path.exists():
-            pose_model = joblib.load(str(pose_model_path))
-            scaler = joblib.load(str(scaler_path))
-            feature_cols = joblib.load(str(features_path))
-            logger.info("✓ Loaded pose classification model")
+        cols_path   = MODEL_DIR / "models" / "pose_feature_cols.pkl"
+        if clf_path.exists() and scaler_path.exists() and cols_path.exists():
+            pose_clf          = joblib.load(str(clf_path))
+            pose_scaler       = joblib.load(str(scaler_path))
+            pose_feature_cols = joblib.load(str(cols_path))
+            classes = list(getattr(pose_clf, 'classes_', []))
+            logger.info(f"✓ Loaded pose activity classifier — classes: {classes}")
         else:
-            logger.warning("Pose classification model files not found")
-            
+            logger.warning("Pose classifier pkl files not found — using rule-based fallback")
+
         return True
     except Exception as e:
-        logger.error(f"Error loading models: {e}")
+        logger.error(f"Failed to load models: {e}")
         return False
 
+
+def _get_pose_landmarker():
+    """Download pose landmarker model if needed and return its path."""
+    task_path = MODEL_DIR / "models" / "pose_landmarker.task"
+    if not task_path.exists():
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        url = (
+            "https://storage.googleapis.com/mediapipe-models/"
+            "pose_landmarker/pose_landmarker_lite/float16/latest/"
+            "pose_landmarker_lite.task"
+        )
+        logger.info("Downloading MediaPipe pose landmarker model...")
+        urllib.request.urlretrieve(url, str(task_path))
+        logger.info("✓ Downloaded pose_landmarker.task")
+    return str(task_path)
+
+
+def _classify_activity(landmarks):
+    """
+    Rule-based activity classification from MediaPipe pose landmarks.
+    Uses joint angles to determine what the person is doing.
+    Returns one of: Walking, Running, Standing, Sitting, Yoga
+    """
+    import numpy as np
+
+    def pt(i):
+        return np.array([landmarks[i].x, landmarks[i].y])
+
+    def angle(a, b, c):
+        ba = a - b
+        bc = c - b
+        cos = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+        return np.degrees(np.arccos(np.clip(cos, -1.0, 1.0)))
+
+    # Key landmarks
+    left_shoulder  = pt(11); right_shoulder = pt(12)
+    left_hip       = pt(23); right_hip      = pt(24)
+    left_knee      = pt(25); right_knee     = pt(26)
+    left_ankle     = pt(27); right_ankle    = pt(28)
+    left_elbow     = pt(13); right_elbow    = pt(14)
+    left_wrist     = pt(15); right_wrist    = pt(16)
+
+    left_knee_angle  = angle(left_hip,  left_knee,  left_ankle)
+    right_knee_angle = angle(right_hip, right_knee, right_ankle)
+    avg_knee_angle   = (left_knee_angle + right_knee_angle) / 2
+
+    left_hip_angle  = angle(left_shoulder,  left_hip,  left_knee)
+    right_hip_angle = angle(right_shoulder, right_hip, right_knee)
+    avg_hip_angle   = (left_hip_angle + right_hip_angle) / 2
+
+    left_arm_angle  = angle(left_shoulder,  left_elbow,  left_wrist)
+    right_arm_angle = angle(right_shoulder, right_elbow, right_wrist)
+    avg_arm_angle   = (left_arm_angle + right_arm_angle) / 2
+
+    # Vertical torso: hip y vs shoulder y (normalized coords, y increases downward)
+    hip_y      = (left_hip[1] + right_hip[1]) / 2
+    shoulder_y = (left_shoulder[1] + right_shoulder[1]) / 2
+    torso_vertical = hip_y - shoulder_y  # positive = upright
+
+    # Sitting: knees heavily bent, hips bent
+    if avg_knee_angle < 110 and avg_hip_angle < 120:
+        return "Sitting"
+
+    # Yoga: one or both knees very bent with arms extended (wide arm angle)
+    if avg_knee_angle < 130 and avg_arm_angle > 140 and torso_vertical > 0.1:
+        return "Yoga"
+
+    # Running: knees bent more than walking, torso upright
+    if 110 <= avg_knee_angle < 155 and torso_vertical > 0.15:
+        return "Running"
+
+    # Walking: moderate knee bend
+    if 155 <= avg_knee_angle < 170 and torso_vertical > 0.1:
+        return "Walking"
+
+    # Default: Standing
+    return "Standing"
+
+
+def _extract_angles(landmarks):
+    """Extract 10 joint angles from MediaPipe landmarks for the pkl classifier."""
+    import numpy as np
+
+    def pt(i):
+        return np.array([landmarks[i].x, landmarks[i].y])
+
+    def angle(a, b, c):
+        ba = a - b
+        bc = c - b
+        cos = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+        return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+
+    try:
+        ls, rs = pt(11), pt(12)
+        le, re = pt(13), pt(14)
+        lw, rw = pt(15), pt(16)
+        lh, rh = pt(23), pt(24)
+        lk, rk = pt(25), pt(26)
+        la, ra = pt(27), pt(28)
+        return [
+            angle(ls, le, lw), angle(rs, re, rw),
+            angle(le, ls, lh), angle(re, rs, rh),
+            angle(lh, lk, la), angle(rh, rk, ra),
+            angle(ls, lh, lk), angle(rs, rh, rk),
+            angle(le, ls, lh), angle(re, rs, rh),
+        ]
+    except Exception:
+        return None
+
+
 class BoundingBoxTracker:
-    """Rigid bounding boxes using strong exponential moving average"""
-    def __init__(self, smoothing_factor=0.95):
-        self.tracks = {}  # {track_id: {'box': [x1,y1,x2,y2], 'label': str, 'frames_missing': int}}
+    """Smooth bounding boxes using exponential moving average to reduce flicker."""
+
+    def __init__(self, smoothing=0.7):
+        self.tracks = {}
         self.next_id = 0
-        self.smoothing_factor = smoothing_factor  # 0.95 = rigid boxes, almost no movement
-        self.max_missing_frames = 20
-        
+        self.smoothing = smoothing
+        self.max_missing = 15
+
     def update(self, detections):
-        """Update tracks with new detections and return smoothed boxes"""
         import numpy as np
-        
-        # Remove stale tracks
-        to_remove = [tid for tid, track in self.tracks.items() 
-                     if track['frames_missing'] > self.max_missing_frames]
-        for tid in to_remove:
-            del self.tracks[tid]
-        
-        # Mark all existing tracks as missing
+
         for track in self.tracks.values():
-            track['frames_missing'] += 1
-        
-        smoothed_detections = []
-        
+            track["missing"] += 1
+
+        stale = [tid for tid, t in self.tracks.items() if t["missing"] > self.max_missing]
+        for tid in stale:
+            del self.tracks[tid]
+
+        smoothed = []
         for det in detections:
-            x1, y1, x2, y2 = det['box']
-            label = det['label']
-            
-            # Find matching track (conservative IoU matching for rigid continuity)
-            best_match_id = None
-            best_iou = 0.2  # Lower threshold for better matching across frames
-            
+            x1, y1, x2, y2 = det["box"]
+            label = det["label"]
+            best_id, best_iou = None, 0.2
+
             for tid, track in self.tracks.items():
-                if track['label'] == label:
-                    iou = self._calculate_iou([x1,y1,x2,y2], track['box'])
-                    if iou > best_iou:
-                        best_iou = iou
-                        best_match_id = tid
-            
-            # Update existing track or create new one
-            if best_match_id is not None:
-                track = self.tracks[best_match_id]
-                # Smooth the coordinates using EMA
-                old_box = track['box']
-                smooth_box = [
-                    int(self.smoothing_factor * old_box[0] + (1-self.smoothing_factor) * x1),
-                    int(self.smoothing_factor * old_box[1] + (1-self.smoothing_factor) * y1),
-                    int(self.smoothing_factor * old_box[2] + (1-self.smoothing_factor) * x2),
-                    int(self.smoothing_factor * old_box[3] + (1-self.smoothing_factor) * y2)
+                if track["label"] != label:
+                    continue
+                iou = self._iou([x1, y1, x2, y2], track["box"])
+                if iou > best_iou:
+                    best_iou = iou
+                    best_id = tid
+
+            if best_id is not None:
+                ob = self.tracks[best_id]["box"]
+                s = self.smoothing
+                new_box = [
+                    int(s * ob[0] + (1 - s) * x1),
+                    int(s * ob[1] + (1 - s) * y1),
+                    int(s * ob[2] + (1 - s) * x2),
+                    int(s * ob[3] + (1 - s) * y2),
                 ]
-                track['box'] = smooth_box
-                track['frames_missing'] = 0
-                smoothed_detections.append({**det, 'box': smooth_box, 'track_id': best_match_id})
+                self.tracks[best_id]["box"] = new_box
+                self.tracks[best_id]["missing"] = 0
+                smoothed.append({**det, "box": new_box, "track_id": best_id})
             else:
-                # New track
-                new_id = self.next_id
+                tid = self.next_id
                 self.next_id += 1
-                self.tracks[new_id] = {
-                    'box': [x1, y1, x2, y2],
-                    'label': label,
-                    'frames_missing': 0
-                }
-                smoothed_detections.append({**det, 'box': [x1,y1,x2,y2], 'track_id': new_id})
-        
-        return smoothed_detections
-    
-    def _calculate_iou(self, box1, box2):
-        """Calculate Intersection over Union"""
-        x1_min, y1_min, x1_max, y1_max = box1
-        x2_min, y2_min, x2_max, y2_max = box2
-        
-        # Intersection area
-        inter_x_min = max(x1_min, x2_min)
-        inter_y_min = max(y1_min, y2_min)
-        inter_x_max = min(x1_max, x2_max)
-        inter_y_max = min(y1_max, y2_max)
-        
-        if inter_x_max < inter_x_min or inter_y_max < inter_y_min:
+                self.tracks[tid] = {"box": [x1, y1, x2, y2], "label": label, "missing": 0}
+                smoothed.append({**det, "box": [x1, y1, x2, y2], "track_id": tid})
+
+        return smoothed
+
+    def _iou(self, a, b):
+        ix1 = max(a[0], b[0]); iy1 = max(a[1], b[1])
+        ix2 = min(a[2], b[2]); iy2 = min(a[3], b[3])
+        if ix2 <= ix1 or iy2 <= iy1:
             return 0.0
-        
-        inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
-        
-        # Union area
-        box1_area = (x1_max - x1_min) * (y1_max - y1_min)
-        box2_area = (x2_max - x2_min) * (y2_max - y2_min)
-        union_area = box1_area + box2_area - inter_area
-        
-        return inter_area / union_area if union_area > 0 else 0.0
+        inter = (ix2 - ix1) * (iy2 - iy1)
+        area_a = (a[2] - a[0]) * (a[3] - a[1])
+        area_b = (b[2] - b[0]) * (b[3] - b[1])
+        return inter / (area_a + area_b - inter + 1e-6)
+
 
 def process_video(input_path: str, output_path: str) -> dict:
-    """Process video with YOLOv8 and pose classification to detect safe/unsafe activities"""
-    
     try:
         logger.info(f"Starting video processing: {input_path}")
-        
-        # Check if input file exists
+
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input video not found: {input_path}")
-        
-        # Load models if not already loaded
+
         if yolo_model is None:
-            load_models()
-            
-        # If YOLO is not available, return placeholder result
-        if yolo_model is None:
-            logger.warning("YOLO model not available, using placeholder detection")
-            import shutil
-            shutil.copy(input_path, output_path)
-            return {
-                "status": "SAFE",
-                "confidence": 0.85,
-                "detected_activities": ["Unknown"],
-                "unsafe_events": [],
-                "total_frames": 0,
-                "processed_frames": 0,
-                "detections": []
-            }
-        
+            success = load_models()
+            if not success or yolo_model is None:
+                raise RuntimeError("YOLO model could not be loaded. Check your internet connection or model path.")
+
         import cv2
         import numpy as np
         import mediapipe as mp
-        import pandas as pd
-        
-        # Initialize bounding box tracker for RIGID boxes (0.95 = barely moves, no flickering)
-        bbox_tracker = BoundingBoxTracker(smoothing_factor=0.95)
-        
-        # MediaPipe Pose setup (optimized for speed)
-        mp_pose = mp.solutions.pose
-        pose = mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=0,  # Changed from 1 to 0 for faster processing
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
+
+        # Setup MediaPipe PoseLandmarker
+        task_path = _get_pose_landmarker()
+        base_options = mp_python.BaseOptions(model_asset_path=task_path)
+        pose_options = mp_vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            running_mode=mp_vision.RunningMode.IMAGE,
+            num_poses=1,
+            min_pose_detection_confidence=0.5,
+            min_pose_presence_confidence=0.5,
         )
-        
-        def calculate_angle(a, b, c):
-            a = np.array(a); b = np.array(b); c = np.array(c)
-            ba = a - b; bc = c - b
-            cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
-            return np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
-        
-        def extract_angles_from_person(person_img):
-            h, w = person_img.shape[:2]
-            # Resize to smaller resolution for faster processing
-            if w > 320:  # Changed from 640 to 320 for 2x speed
-                person_img = cv2.resize(person_img, (320, int((h/w)*320)))
-            rgb = cv2.cvtColor(person_img, cv2.COLOR_BGR2RGB)
-            results = pose.process(rgb)
-            if not results.pose_landmarks:
-                return None
-            lm = results.pose_landmarks.landmark
-            def pt(i): return (lm[i].x, lm[i].y)
-            ls, rs = pt(11), pt(12); le, re = pt(13), pt(14)
-            lw, rw = pt(15), pt(16); lh, rh = pt(23), pt(24)
-            lk, rk = pt(25), pt(26); la, ra = pt(27), pt(28)
-            return [
-                calculate_angle(ls, le, lw), calculate_angle(rs, re, rw),
-                calculate_angle(le, ls, lh), calculate_angle(re, rs, rh),
-                calculate_angle(lh, lk, la), calculate_angle(rh, rk, ra),
-                calculate_angle(ls, lh, lk), calculate_angle(rs, rh, rk),
-                calculate_angle(le, ls, lh), calculate_angle(re, rs, rh),
-            ]
-        
-        SAFE_ACTIVITIES = ["Sitting", "Standing still", "Walking", "Yoga"]
-        UNSAFE_ACTIVITIES = ["Fighting"]
-        
-        # Video processing
+        pose_landmarker = mp_vision.PoseLandmarker.create_from_options(pose_options)
+
+        tracker = BoundingBoxTracker(smoothing=0.7)
+
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
-            raise Exception("Cannot open video file")
-            
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            raise RuntimeError("Cannot open video file")
+
+        fps          = cap.get(cv2.CAP_PROP_FPS) or 25
+        width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        # Use H.264 codec for better browser compatibility (fallback to mp4v if not available)
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")  # H.264 codec
+
+        # Process every Nth frame; draw cached results on skipped frames
+        # Target ~8 AI inferences/sec regardless of source fps
+        PROCESS_EVERY = max(1, int(round(fps / 8)))
+
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
-        # Check if VideoWriter opened successfully
         if not out.isOpened():
-            logger.warning("H.264 (avc1) codec not available, trying mp4v...")
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
+
         detected_activities = []
-        unsafe_events = []
-        detections = []
-        processed_frames = 0
-        unsafe_frame_count = 0
-        
-        # Process EVERY frame for rigid, continuous tracking (no gaps = no flickering)
-        frame_skip = 1  # Process every frame for rigid, stable boxes
-        frame_count = 0
-        
-        logger.info(f"Processing {total_frames} frames (analyzing every frame for rigid tracking)...")
-        
+        unsafe_events       = []
+        all_detections      = []
+        frame_count         = 0
+        processed_frames    = 0
+        unsafe_frame_count  = 0
+        last_smoothed       = []  # cached detections reused on skipped frames
+
+        logger.info(f"Processing {total_frames} frames at {fps:.1f} fps (every {PROCESS_EVERY} frames)...")
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            
+
             frame_count += 1
-            
-            # Skip frames for faster processing
-            if frame_count % frame_skip != 0:
-                out.write(frame)  # Still write all frames to output
-                continue
-                
-            processed_frames += 1
-            frame_has_unsafe = False
-            
-            results = yolo_model.predict(frame, verbose=False)[0]
-            
-            # Collect all detections for this frame
-            frame_detections = []
-            
-            for box in results.boxes:
-                cls_id = int(box.cls[0])
-                conf = float(box.conf[0])
-                if conf < 0.4:
-                    continue
-                    
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                
-                # Person detection - analyze activity
-                if cls_id == 0:
-                    person_crop = frame[y1:y2, x1:x2]
-                    if person_crop.size == 0:
+            is_inference_frame = (frame_count % PROCESS_EVERY == 0) or frame_count == 1
+
+            if is_inference_frame:
+                processed_frames += 1
+                frame_has_unsafe = False
+                frame_detections = []
+
+                # Downscale for inference, keep original for writing
+                infer_w = min(width, 640)
+                scale   = infer_w / width
+                infer_frame = cv2.resize(frame, (infer_w, int(height * scale))) if scale < 1.0 else frame
+
+                # ── YOLO object detection ──────────────────────────────────────
+                yolo_results = yolo_model.predict(infer_frame, verbose=False)[0]
+
+                inv = 1.0 / scale if scale < 1.0 else 1.0
+
+                for box in yolo_results.boxes:
+                    cls_id = int(box.cls[0])
+                    conf   = float(box.conf[0])
+                    if conf < 0.4:
                         continue
-                        
-                    pred = "Person"
-                    if pose_model is not None and scaler is not None and feature_cols is not None:
-                        feats = extract_angles_from_person(person_crop)
-                        if feats is not None:
-                            X_pred = pd.DataFrame([feats], columns=feature_cols)
-                            X_scaled = scaler.transform(X_pred)
-                            pred = pose_model.predict(X_scaled)[0]
-                        else:
-                            pred = "Unknown"
-                    
-                    detected_activities.append(pred)
-                    
-                    # Safety decision
-                    if pred in SAFE_ACTIVITIES or pred == "Person":
-                        status = "SAFE"
-                        color = (0, 255, 0)
-                    else:
-                        status = "UNSAFE"
-                        color = (0, 0, 255)
+
+                    # Scale coords back to original resolution
+                    x1, y1, x2, y2 = (int(v * inv) for v in box.xyxy[0])
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(width, x2), min(height, y2)
+
+                    # ── Person: use MediaPipe for activity classification ──
+                    if cls_id == 0:
+                        crop = frame[y1:y2, x1:x2]
+                        if crop.size == 0:
+                            continue
+
+                        activity = "Person"
+                        h, w = crop.shape[:2]
+                        if w > 256:
+                            crop = cv2.resize(crop, (256, int(h * 256 / w)))
+
+                        rgb      = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                        result   = pose_landmarker.detect(mp_image)
+
+                        if result.pose_landmarks:
+                            landmarks = result.pose_landmarks[0]
+                            if pose_clf is not None and pose_scaler is not None and pose_feature_cols is not None:
+                                import pandas as pd
+                                angles = _extract_angles(landmarks)
+                                if angles is not None:
+                                    X = pd.DataFrame([angles], columns=pose_feature_cols)
+                                    X_scaled = pose_scaler.transform(X)
+                                    activity = str(pose_clf.predict(X_scaled)[0]).strip().title()
+                                else:
+                                    activity = _classify_activity(landmarks)
+                            else:
+                                activity = _classify_activity(landmarks)
+
+                        detected_activities.append(activity)
+                        is_safe = activity in SAFE_ACTIVITIES or activity == "Person"
+                        status  = "SAFE" if is_safe else "UNSAFE"
+                        color   = (0, 200, 0) if is_safe else (0, 0, 255)
+
+                        if not is_safe:
+                            frame_has_unsafe = True
+                            unsafe_events.append({"frame": frame_count, "activity": activity})
+
+                        frame_detections.append({
+                            "box": [x1, y1, x2, y2],
+                            "label": activity,
+                            "status": status,
+                            "color": color,
+                            "conf": conf,
+                        })
+
+                    # ── Vehicle: always UNSAFE ────────────────────────────
+                    elif cls_id in VEHICLE_CLASSES:
+                        label = VEHICLE_CLASSES[cls_id]
                         frame_has_unsafe = True
-                        unsafe_events.append({"frame": processed_frames, "activity": pred})
-                    
-                    frame_detections.append({
-                        'box': [x1, y1, x2, y2],
-                        'label': pred,
-                        'status': status,
-                        'color': color,
-                        'conf': conf
+                        unsafe_events.append({"frame": frame_count, "activity": label})
+
+                        frame_detections.append({
+                            "box": [x1, y1, x2, y2],
+                            "label": label,
+                            "status": "UNSAFE",
+                            "color": (0, 0, 255),
+                            "conf": conf,
+                        })
+
+                last_smoothed = tracker.update(frame_detections)
+
+                for det in last_smoothed:
+                    all_detections.append({
+                        "frame_number":      frame_count,
+                        "activity_label":    det["label"],
+                        "safety_status":     det["status"],
+                        "timestamp_seconds": round(frame_count / fps, 2),
+                        "confidence":        round(det["conf"], 2),
+                        "bounding_box":      {"x1": det["box"][0], "y1": det["box"][1],
+                                              "x2": det["box"][2], "y2": det["box"][3]},
                     })
-                
-                # Vehicle detection = UNSAFE
-                elif cls_id in [1, 2, 3]:  # bicycle, car, motorcycle
-                    vehicle_names = {1: "BIKE", 2: "CAR", 3: "MOTORCYCLE"}
-                    vehicle_name = vehicle_names.get(cls_id, "VEHICLE")
-                    frame_has_unsafe = True
-                    unsafe_events.append({"frame": processed_frames, "activity": vehicle_name})
-                    
-                    frame_detections.append({
-                        'box': [x1, y1, x2, y2],
-                        'label': vehicle_name,
-                        'status': 'UNSAFE',
-                        'color': (0, 0, 255),
-                        'conf': conf
-                    })
-            
-            # Apply smoothing to bounding boxes
-            smoothed_detections = bbox_tracker.update(frame_detections)
-            
-            # Draw smoothed boxes and save detection data
-            for det in smoothed_detections:
-                x1, y1, x2, y2 = det['box']
-                label = det['label']
-                status = det['status']
-                color = det['color']
-                conf = det['conf']
-                
-                # Draw with thicker lines for stability
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)
-                cv2.putText(frame, f"{label} ({status})", (x1, y1-10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-                
-                detections.append({
-                    "frame_number": int(frame_count),
-                    "activity_label": label,
-                    "safety_status": status,
-                    "timestamp_seconds": float(frame_count / fps) if fps else 0.0,
-                    "confidence": float(conf),
-                    "bounding_box": {
-                        "x1": int(x1),
-                        "y1": int(y1),
-                        "x2": int(x2),
-                        "y2": int(y2)
-                    }
-                })
-            
-            if frame_has_unsafe:
-                unsafe_frame_count += 1
-                
+
+                if frame_has_unsafe:
+                    unsafe_frame_count += 1
+
+            # ── Draw cached boxes on every frame (inference or skipped) ──
+            for det in last_smoothed:
+                x1, y1, x2, y2 = det["box"]
+                color = det["color"]
+                conf  = det["conf"]
+                text  = f"{det['label']} {conf:.0%}"
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, text, (x1, max(y1 - 8, 0)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
             out.write(frame)
-        
+
         cap.release()
         out.release()
-        pose.close()
-        
-        # Calculate overall status
-        unsafe_percentage = (unsafe_frame_count / processed_frames * 100) if processed_frames > 0 else 0
-        overall_status = "UNSAFE" if unsafe_percentage > 10 else "SAFE"
-        confidence = 1.0 - (unsafe_percentage / 100.0)
-        duration_seconds = (total_frames / fps) if fps else 0
-        
-        result = {
-            "status": overall_status,
-            "confidence": round(confidence, 2),
+        pose_landmarker.close()
+
+        unsafe_pct     = (unsafe_frame_count / processed_frames * 100) if processed_frames else 0
+        overall_status = "UNSAFE" if unsafe_pct > 10 else "SAFE"
+        confidence     = round(1.0 - unsafe_pct / 100.0, 2)
+        duration       = round(total_frames / fps, 2) if fps else 0
+
+        logger.info(f"✓ Done: {overall_status} ({unsafe_pct:.1f}% unsafe frames)")
+
+        return {
+            "status":              overall_status,
+            "confidence":          confidence,
             "detected_activities": list(set(detected_activities))[:10],
-            "unsafe_events": unsafe_events[:20],
-            "detections": detections,
-            "total_frames": total_frames,
-            "duration": round(duration_seconds, 2),
-            "processed_frames": processed_frames,
-            "unsafe_frame_count": unsafe_frame_count,
-            "unsafe_percentage": round(unsafe_percentage, 2)
+            "unsafe_events":       unsafe_events[:50],
+            "detections":          all_detections[:500],
+            "total_frames":        total_frames,
+            "duration":            duration,
+            "processed_frames":    processed_frames,
+            "unsafe_frame_count":  unsafe_frame_count,
+            "unsafe_percentage":   round(unsafe_pct, 2),
         }
-        
-        logger.info(f"✓ Processing complete: {overall_status} ({unsafe_percentage:.1f}% unsafe frames)")
-        return result
-        
+
     except Exception as e:
-        logger.error(f"Error processing video: {str(e)}")
-        raise Exception(f"Video processing failed: {str(e)}")
+        logger.error(f"Video processing error: {e}")
+        raise Exception(f"Video processing failed: {e}")
